@@ -1,0 +1,681 @@
+﻿#include "JSONSanitiser.hpp"
+
+#include <array>
+#include <cstdint>
+#include <iostream>
+
+namespace {
+std::array<char, 16> const HEX_DIGITS = {'0', '1', '2', '3', '4', '5', '6', '7',
+                                         '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
+
+} // namespace
+
+namespace utf8 {
+
+// Reused from Boost
+inline bool invalid_continuing_octet(unsigned char octet_1)
+{
+    return (octet_1 < 0x80 || 0xbf < octet_1);
+}
+
+inline bool invalid_leading_octet(unsigned char octet_1)
+{
+    return (0x7f < octet_1 && octet_1 < 0xc0) || (octet_1 > 0xfd);
+}
+
+inline unsigned int get_octet_count(unsigned char lead_octet)
+{
+    // if the 0-bit (MSB) is 0, then 1 character
+    if (lead_octet <= 0x7f)
+        return 1;
+
+    // Otherwise the count number of consecutive 1 bits starting at MSB
+    //    assert(0xc0 <= lead_octet && lead_octet <= 0xfd);
+
+    if (0xc0 <= lead_octet && lead_octet <= 0xdf)
+        return 2;
+    else if (0xe0 <= lead_octet && lead_octet <= 0xef)
+        return 3;
+    else if (0xf0 <= lead_octet && lead_octet <= 0xf7)
+        return 4;
+    else if (0xf8 <= lead_octet && lead_octet <= 0xfb)
+        return 5;
+    else
+        return 6;
+}
+
+// continuing octets = octets except for the leading octet
+inline unsigned int get_cont_octet_count(unsigned char lead_octet)
+{
+    return get_octet_count(lead_octet) - 1;
+}
+
+inline std::string_view char_at(std::string const &s, size_t start)
+{
+    return std::string_view(s.data() + start, get_octet_count(start));
+}
+
+inline std::string_view char_at(std::string_view const s, size_t start)
+{
+    return std::string_view(s.data() + start, get_octet_count(start));
+}
+
+uint32_t to_utf32(std::string_view s)
+{
+    constexpr uint8_t UTF8_ONE_BYTE_MASK   = 0b10000000;
+    constexpr uint8_t UTF8_TWO_BYTE_MASK   = 0b11100000;
+    constexpr uint8_t UTF8_THREE_BYTE_MASK = 0b11110000;
+    constexpr uint8_t UTF8_FOUR_BYTE_MASK  = 0b11111000;
+    constexpr uint8_t UTF8_FIVE_BYTE_MASK  = 0b11111100;
+    constexpr uint8_t UTF8_SIX_BYTE_MASK   = 0b11111110;
+
+    constexpr uint8_t UTF8_CONTINUATION_MASK = 0b00111111;
+
+    uint32_t c = 0;
+    switch (s.length()) {
+        case 1:
+            c = static_cast<uint8_t>(s[0]) & ~UTF8_ONE_BYTE_MASK;
+            break;
+        case 2:
+            c = (static_cast<uint8_t>(s[0]) & ~UTF8_TWO_BYTE_MASK) << 6 |
+                (static_cast<uint8_t>(s[1]) & UTF8_CONTINUATION_MASK);
+            break;
+        case 3:
+            c = (static_cast<uint8_t>(s[0]) & ~UTF8_THREE_BYTE_MASK) << 12 |
+                (static_cast<uint8_t>(s[1]) & UTF8_CONTINUATION_MASK) << 6 |
+                (static_cast<uint8_t>(s[2]) & UTF8_CONTINUATION_MASK);
+            break;
+        case 4:
+            c = (static_cast<uint8_t>(s[0]) & ~UTF8_FOUR_BYTE_MASK) << 18 |
+                (static_cast<uint8_t>(s[1]) & UTF8_CONTINUATION_MASK) << 12 |
+                (static_cast<uint8_t>(s[2]) & UTF8_CONTINUATION_MASK) << 6 |
+                (static_cast<uint8_t>(s[3]) & UTF8_CONTINUATION_MASK);
+            break;
+        case 5:
+            c = (static_cast<uint8_t>(s[0]) & ~UTF8_FIVE_BYTE_MASK) << 24 |
+                (static_cast<uint8_t>(s[1]) & UTF8_CONTINUATION_MASK) << 18 |
+                (static_cast<uint8_t>(s[2]) & UTF8_CONTINUATION_MASK) << 12 |
+                (static_cast<uint8_t>(s[3]) & UTF8_CONTINUATION_MASK) << 6 |
+                (static_cast<uint8_t>(s[4]) & UTF8_CONTINUATION_MASK);
+            break;
+        case 6:
+            c = (static_cast<uint8_t>(s[0]) & ~UTF8_FIVE_BYTE_MASK) << 32 |
+                (static_cast<uint8_t>(s[1]) & UTF8_CONTINUATION_MASK) << 24 |
+                (static_cast<uint8_t>(s[2]) & UTF8_CONTINUATION_MASK) << 18 |
+                (static_cast<uint8_t>(s[3]) & UTF8_CONTINUATION_MASK) << 12 |
+                (static_cast<uint8_t>(s[4]) & UTF8_CONTINUATION_MASK) << 6 |
+                (static_cast<uint8_t>(s[5]) & UTF8_CONTINUATION_MASK);
+            break;
+    }
+    return c;
+}
+
+} // namespace utf8
+
+namespace com::google::json {
+
+void JsonSanitizer::sanitize()
+{
+    _bracketDepth = 0u;
+    _cleaned      = 0u;
+    _sanitizedJson.clear();
+
+    State state = State::START_ARRAY;
+    if (_jsonish.empty()) {
+        _sanitizedJson = "null";
+        return;
+    }
+
+    // n is count of code points, not bytes
+    auto const n = _jsonish.length();
+    for (size_t i = 0u; i < n; ++i) {
+
+        try {
+            auto ch = utf8::char_at(_jsonish, i);
+            if (SUPER_VERBOSE_AND_SLOW_LOGGING) {
+                auto sanitizedJsonStr = _sanitizedJson;
+                sanitizedJsonStr.append(_jsonish.substr(_cleaned, i - _cleaned));
+                std::cerr << "i=" << i << ", ch =" << ch << ", state=" << toString(state)
+                          << ", sanitized=" << sanitizedJsonStr << "\n";
+            }
+            auto abortLoop = false;
+            if (ch.length() == 1) {
+                switch (ch.front()) {
+                    case '\t':
+                    case '\n':
+                    case '\r':
+                    case ' ':
+                        break;
+
+                    case '"':
+                    case '\'': {
+                        state       = requireValueState(i, state, true);
+                        auto strEnd = endOfQuotedString(_jsonish, i);
+                        sanitizeString(i, strEnd);
+                        i = strEnd - i;
+                    } break;
+                    case '(':
+                    case ')':
+                        elide(i, i + 1);
+                        break;
+                    case '{':
+                    case '[':
+                        state = requireValueState(i, state, false);
+                        if (_isMap.empty()) {
+                            _isMap.resize(_maximumNestingDepth, false);
+                        }
+                        auto map = ch.front() == '{';
+                        _isMap[_bracketDepth] = map;
+                        ++_bracketDepth;
+                        state = map ? State::START_MAP : State::START_ARRAY;
+                        break;
+                    case '}':
+                    case ']':
+                        if (_bracketDepth == 0) {
+                            elide(i, _jsonish.length());
+                            abortLoop = true;
+                            break;
+                        }
+                        switch (state) {
+                            case State::BEFORE_VALUE:
+                                insert(i, "null");
+                                break;
+                            case State::BEFORE_ELEMENT:
+                            case State::BEFORE_KEY:
+                                elideTrailingComma(i);
+                                break;
+                            case State::AFTER_KEY:
+                                insert(i, ":null");
+                                break;
+                            case State::START_MAP:
+                            case State::START_ARRAY:
+                            case State::AFTER_ELEMENT:
+                            case State::AFTER_VALUE:
+                                break;
+                        }
+                        --_bracketDepth;
+                        auto closeBracket = _isMap[_bracketDepth] ? '}' : ']';
+                        if (ch.front() != closeBracket) {
+                            replace(i, i + 1, closeBracket);
+                        }
+                        state = ((_bracketDepth == 0) || (!_isMap[_bracketDepth - 1])) ?
+                                    State::AFTER_ELEMENT :
+                                    State::AFTER_VALUE;
+                        break;
+                    case ',':
+                        if (_bracketDepth == 0) {
+                            throw UnbracketedComma{};
+                        }
+                        switch (state) {
+                            // Normal
+                            case State::AFTER_ELEMENT:
+                                state = State::BEFORE_ELEMENT;
+                                break;
+                            case State::AFTER_VALUE:
+                                state = State::BEFORE_KEY;
+                                break;
+                            // Array elision.
+                            case State::START_ARRAY:
+                            case State::BEFORE_ELEMENT:
+                                insert(i, "null");
+                                state = State::BEFORE_ELEMENT;
+                                break;
+                            // Ignore
+                            case State::START_MAP:
+                            case State::BEFORE_KEY:
+                            case State::AFTER_KEY:
+                                elide(i, i + 1);
+                                break;
+                            // Supply missing value.
+                            case State::BEFORE_VALUE:
+                                insert(i, "null");
+                                state = State::BEFORE_KEY;
+                                break;
+                        }
+                        break;
+                    case ':':
+                        if (state == State::AFTER_KEY) {
+                            state = State::BEFORE_VALUE;
+                        } else {
+                            elide(i, i + 1);
+                        }
+                        break;
+                    case '/':
+                        auto end = i + 1;
+                        if (end < n) {
+                            auto jca = utf8::char_at(_jsonish, end);
+                            if (jca.length() == 1) {
+                                switch (jca.front()) {
+                                    case '/':
+                                        end = n; // Worst case.
+                                        for (auto j = i + 2; j < n; j+=utf8::get_octet_count(j)) {
+                                            auto cch = utf8::char_at(_jsonish, j);
+                                            if (cch == "\n" || cch == "\r" || cch == "\xe2\x80\xa8" || cch == "\xe2\x80\xa9") {
+                                                end = j + cch.length();
+                                                break;
+                                            }
+                                        }
+                                        break;
+                                    case '*':
+                                        end = n;
+                                        if (i + 3 < n) {
+                                            for (auto j = i + 2;
+                                                 (j = _jsonish.find('/', j + 1)) != std::string_view::npos;) {
+                                                if (_jsonish[j - 1] == '*') {
+                                                    end = j + 1;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        break;
+                                }
+                            }
+                        }
+                        elide(i, end);
+                        i = end - 1;
+                        break;
+                    default:
+                        auto runEnd = i;
+                        for (; runEnd < n; ++runEnd) {
+                            auto tch = utf8::char_at(_jsonish, runEnd);
+                            if (tch.size() == 1) {
+                                auto &tchf = tch.front();
+                                if ((('a' <= tchf) && (tchf <= 'z')) || (('0' <= tchf) && (tchf <= '9')) ||
+                                    (tchf == '+') || (tchf == '-') || (tchf == '.') ||
+                                    (('A' <= tchf) && (tchf <= 'Z')) || (tchf == '_') || (tchf == '$')) {
+                                    continue;
+                                }
+                            }
+                            break;
+                        }
+
+                        if (runEnd == i) {
+                            elide(i, i + 1);
+                            break;
+                        }
+
+                        state = requireValueState(i, state, true);
+                        auto &chf = ch.front();
+                        auto isNumber =
+                            (('0' <= chf) && (chf <= '9')) || (chf == '.') || (chf == '+') || (chf == '-');
+                        auto bisKeyword = !isNumber && isKeyword(i, runEnd);
+
+                        if (!(isNumber || bisKeyword)) {
+                            // We're going to have to quote the output.  Further expand to
+                            // include more of an unquoted token in a string.
+                            for (; runEnd < n; ++runEnd) {
+                                if (isJsonSpecialChar(runEnd)) {
+                                    break;
+                                }
+                            }
+                            if (runEnd < n && jsonish.charAt(runEnd) == '"') {
+                                ++runEnd;
+                            }
+                        }
+
+                }
+            }
+            if (abortLoop) {
+                break;
+            }
+        } catch (UnbracketedComma const &e) {
+            elide(i, _jsonish.length());
+            break;
+        }
+    }
+}
+
+std::string_view JsonSanitizer::toString() const noexcept
+{
+    return !_sanitizedJson.empty() ? std::string_view{_sanitizedJson} : _jsonish;
+}
+
+void JsonSanitizer::sanitizeString(size_t start, size_t end)
+{
+    auto closed = false;
+    auto i      = start;
+    while (i < end) {
+        auto ch = utf8::char_at(_jsonish, i);
+        if (ch == "\xe2\x80\xa8") {
+            replace(i, i + ch.length(), "\\u2028");
+        } else if (ch == "\xe2\x80\xa9") {
+            replace(i, i + ch.length(), "\\u2029");
+        } else if (ch.length() == 1) {
+            auto &chf = ch.front();
+            if (chf < '\x20') {
+                if ((chf == '\x09') || (chf == '\x0a') || (chf == '\x0d')) {
+                    ++i;
+                    continue;
+                } else {
+                    replace(i, i + 1, "\\u");
+                    auto uch = static_cast<uint32_t>(chf);
+                    for (auto j = 4; --j >= 0;) {
+                        _sanitizedJson.push_back(HEX_DIGITS[uch >> (j << 2) & 0x0f]);
+                    }
+                    ++i;
+                    continue;
+                }
+            }
+            switch (chf) {
+                case '\n':
+                    replace(i, i + 1, "\\n");
+                    break;
+                case '\r':
+                    replace(i, i + 1, "\\r");
+                    break;
+                case '"':
+                case '\'':
+                    if (i == start) {
+                        if (ch == "\'") {
+                            replace(i, i + 1, "\"");
+                        }
+                    } else {
+                        if ((i + ch.length()) == end) {
+                            auto startDelim = utf8::char_at(_jsonish, start);
+                            if (startDelim != "\'") {
+                                startDelim = "\"";
+                            }
+                            closed = startDelim == ch;
+                        }
+                        if (closed) {
+                            if (ch == "\'") {
+                                replace(i, i + 1, "\"");
+                            } else if (ch == "\"") {
+                                insert(i, "\\");
+                            }
+                        }
+                    }
+                    break;
+                case '<':
+                    if ((i + 3) >= end) {
+                        break;
+                    }
+                    auto const ofst = i + 1;
+                    auto       c1   = utf8::char_at(_jsonish, ofst);
+                    auto       c2   = utf8::char_at(_jsonish, ofst + c1.length());
+                    auto       c3   = utf8::char_at(_jsonish, ofst + c1.length() + c2.length());
+                    if ((c1.length() == 1) && (c2.length() == 1) && (c3.length() == 1)) {
+                        auto lc1 = static_cast<char>(c1.front() | 32);
+                        auto lc2 = static_cast<char>(c2.front() | 32);
+                        auto lc3 = static_cast<char>(c3.front() | 32);
+                        if ((c1 == "!" && c2 == "-" && c3 == "-") ||
+                            (lc1 == 's' && lc2 == 'c' && lc3 == 'r') ||
+                            (c1 == "/" && lc2 == 's' && lc3 == 'c')) {
+                            replace(i, ofst, "\\u003c");
+                        }
+                    }
+                    break;
+                case '>':
+                    if (((i - 2) >= start) && (utf8::char_at(_jsonish, i - 2) == "-") &&
+                        (utf8::char_at(_jsonish, i - 1) == "-")) {
+                        replace(i, i + 1, "\\u005d");
+                    }
+                    break;
+                case ']':
+                    if ((i + 2 < end) && (utf8::char_at(_jsonish, i + 1) == "]") &&
+                        (utf8::char_at(_jsonish, i + 2) == ">")) {
+                        replace(i, i + 1, "\\u005d");
+                    }
+                    break;
+                case '\\':
+                    if (i + 1 == end) {
+                        elide(i, i + 1);
+                        break;
+                    }
+                    auto sch = utf8::char_at(_jsonish, i + 1);
+                    if (sch.length() == 1) {
+                        switch (sch.front()) {
+                            case 'b':
+                            case 'f':
+                            case 'n':
+                            case 'r':
+                            case 't':
+                            case '\\':
+                            case '/':
+                            case '"':
+                                ++i;
+                                break;
+                            case 'x':
+                                if (((i + 4) < end) && isHexAt(i + 2) && isHexAt(i + 3)) {
+                                    replace(i, i + 2, "\\u00"); // \xab -> \u00ab
+                                    i += 3;
+                                    break;
+                                }
+                                elide(i, i + 1);
+                                break;
+                            case 'u':
+                                if (((i + 6) < end) && isHexAt(i + 2) && isHexAt(i + 3) &&
+                                    isHexAt(i + 4) && isHexAt(i + 5)) {
+                                    i += 5;
+                                    break;
+                                }
+                                elide(i, i + 1);
+                                break;
+                            case '0':
+                            case '1':
+                            case '2':
+                            case '3':
+                            case '4':
+                            case '5':
+                            case '6':
+                            case '7':
+                                auto octalEnd = i + 1;
+                                if (((octalEnd + 1) < end) && isOctAt(octalEnd + 1)) {
+                                    ++octalEnd;
+                                    if (((ch.front() <= '3')) && ((octalEnd + 1) < end) &&
+                                        isOctAt(octalEnd + 1)) {
+                                        ++octalEnd;
+                                    }
+                                    int value = 0;
+                                    for (auto j = i; j < octalEnd; ++j) {
+                                        auto  jca  = utf8::char_at(_jsonish, j);
+                                        auto &jcaf = jca.front();
+                                        value      = (value << 3) | (jcaf - '0');
+                                    }
+                                    replace(i + 1, octalEnd, "u00");
+                                    appendHex(value, 2);
+                                }
+                                i = octalEnd - 1;
+                                break;
+                            default:
+                                elide(i, i + 1);
+                                break;
+                        }
+                    }
+                    break;
+                default:
+                    break;
+            }
+        } else {
+            auto const u32ch = utf8::to_utf32(ch);
+            if ((u32ch >= 0xD800) && (u32ch < 0xE000)) {
+                // This must be a lone surrogate - otherwise it would have been
+                // combined with another to make a valid UTF8 character
+                replace(i, i + ch.length(), "\\u");
+                auto u16ch = static_cast<uint16_t>(u32ch); // Safe
+                for (int j = 4; --j >= 0;) {
+                    _sanitizedJson.push_back(HEX_DIGITS[(u16ch >> (j << 2)) & 0xf]);
+                }
+            } else if (u32ch >= 0xFFFE) {
+                // These have to be split into surrogate pairs
+                uint32_t u32chprime = u32ch - 0x10000;
+                uint16_t w1         = 0xD800u + static_cast<uint16_t>((u32chprime & 0x000FFC00) >> 10);
+                uint16_t w2         = 0xDC00u + static_cast<uint16_t>(u32chprime & 0x000003FF);
+                replace(i, i + ch.length(), "\\u");
+                for (int j = 4; --j >= 0;) {
+                    _sanitizedJson.push_back(HEX_DIGITS[(w1 >> (j << 2)) & 0xf]);
+                }
+                _sanitizedJson.append("\\u");
+                for (int j = 4; --j >= 0;) {
+                    _sanitizedJson.push_back(HEX_DIGITS[(w2 >> (j << 2)) & 0xf]);
+                }
+            }
+        }
+        i += ch.length();
+    }
+    if (!closed) {
+        insert(end, "\"");
+    }
+}
+
+JsonSanitizer::State JsonSanitizer::requireValueState(size_t pos, State state, bool canBeKey)
+{
+    switch (state) {
+        case State::START_MAP:
+        case State::BEFORE_KEY:
+            if (canBeKey) {
+                return State::AFTER_KEY;
+            } else {
+                insert(pos, "\"\":");
+                return State::AFTER_KEY;
+            }
+            break;
+
+        case State::AFTER_KEY:
+            insert(pos, ":");
+            return State::AFTER_VALUE;
+            break;
+
+        case State::BEFORE_VALUE:
+            return State::AFTER_VALUE;
+            break;
+
+        case State::AFTER_VALUE:
+            if (canBeKey) {
+                insert(pos, ",");
+                return State::AFTER_KEY;
+            } else {
+                insert(pos, ",\"\":");
+                return State::AFTER_VALUE;
+            }
+            break;
+
+        case State::START_ARRAY:
+        case State::BEFORE_ELEMENT:
+            return State::AFTER_ELEMENT;
+            break;
+
+        case State::AFTER_ELEMENT:
+            if (_bracketDepth == 0) {
+                throw UnbracketedComma{};
+            }
+            insert(pos, ",");
+            return State::AFTER_ELEMENT;
+
+        default:
+            break;
+    }
+    throw AssertionError{};
+}
+
+void JsonSanitizer::insert(size_t pos, std::string_view s)
+{
+    replace(pos, pos, s);
+}
+
+void JsonSanitizer::elide(size_t start, size_t end)
+{
+    if (_sanitizedJson.empty()) {
+        _sanitizedJson.reserve(_jsonish.length() + 32);
+    }
+    _sanitizedJson.append(_jsonish.substr(_cleaned, start - _cleaned));
+    _cleaned = end;
+}
+
+void JsonSanitizer::replace(size_t start, size_t end, std::string_view s)
+{
+    elide(start, end);
+    _sanitizedJson.append(s);
+}
+
+void JsonSanitizer::replace(size_t start, size_t end, char s)
+{
+    elide(start, end);
+    _sanitizedJson.push_back(s);
+}
+
+size_t JsonSanitizer::endOfQuotedString(std::string_view s, size_t start) const
+{
+    auto quote = utf8::char_at(s, start);
+    auto i     = s.find(quote, start + quote.length());
+    while (i != std::string_view::npos) {
+        auto slashRunStart = i;
+        while ((slashRunStart > start) && (utf8::char_at(s, slashRunStart) == "\\")) {
+            --slashRunStart;
+        }
+        if (((i - slashRunStart) & 1) == 0) {
+            return i + quote.length();
+        }
+        i = s.find(quote, i + quote.length());
+    }
+    return s.length();
+}
+
+void JsonSanitizer::elideTrailingComma(size_t closeBracketPos)
+{}
+
+void JsonSanitizer::normalizeNumber(size_t start, size_t end)
+{}
+
+bool JsonSanitizer::canonicalizeNumber(size_t start, size_t end)
+{}
+
+bool JsonSanitizer::canonicalizeNumber(std::string &sanitizedJson, size_t sanStart, size_t sanEnd)
+{}
+
+bool JsonSanitizer::isKeyword(size_t start, size_t end) const
+{
+    auto n = end - start;
+    if (n == 5) {
+        auto pos = _jsonish.find("false", start, n);
+        return pos != std::string_view::npos;
+    } else if (n == 4) {
+        auto pos = _jsonish.find("true", start, n);
+        if (pos != std::string_view::npos) {
+            return true;
+        }
+        pos = _jsonish.find("null", start, n);
+        return pos != std::string_view::npos;
+    }
+}
+
+bool JsonSanitizer::isOctAt(size_t i) const
+{
+    auto ch = utf8::char_at(_jsonish, i);
+    if (ch.length() == 1) {
+        return ('0' <= ch.front()) && (ch.front() <= '7');
+    }
+    return false;
+}
+
+bool JsonSanitizer::isHexAt(size_t i) const
+{
+    auto ch = utf8::char_at(_jsonish, i);
+    if (ch.length() == 1) {
+        if (('0' <= ch.front()) && (ch.front() <= '9')) {
+            return true;
+        }
+        auto c = static_cast<char>(ch.front() | 32);
+        return ('a' <= c) && (c <= 'f');
+    }
+    return false;
+}
+
+bool JsonSanitizer::isJsonSpecialChar(size_t i) const
+{}
+
+// clang-format off
+void JsonSanitizer::appendHex(int n, int nDigits)
+{
+    for (unsigned int i = 0, x = static_cast<unsigned int>(n); i<nDigits; ++i, x >> 4) {
+        auto dig = static_cast<char>(x & 0xf);
+        _sanitizedJson.push_back(dig +
+                                 (dig < static_cast<char>(10) ? '0' : static_cast<char>('a' - 10)));
+    }
+}
+// clang-format on
+
+size_t JsonSanitizer::endOfDigitRun(size_t start, size_t limit) const
+{}
+
+} // namespace com::google::json
