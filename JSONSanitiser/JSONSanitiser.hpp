@@ -144,6 +144,7 @@ private:
     void   sanitizeString(size_t start, size_t end);
     State  requireValueState(size_t pos, State state, bool canBeKey);
     void   insert(size_t pos, std::string_view s);
+    void   insert(size_t pos, char s);
     void   elide(size_t start, size_t end);
     void   replace(size_t start, size_t end, std::string_view s);
     void   replace(size_t start, size_t end, char s);

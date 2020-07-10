@@ -23,6 +23,23 @@ inline bool invalid_leading_octet(unsigned char octet_1)
     return (0x7f < octet_1 && octet_1 < 0xc0) || (octet_1 > 0xfd);
 }
 
+size_t backup_one_character_octect_count(unsigned char const *c, size_t max)
+{
+    size_t i = 1;
+    while (i != max) {
+        auto &ch = *(c - i);
+        if (!invalid_continuing_octet(ch)) {
+            ++i;
+            continue;
+        } else if (!invalid_leading_octet(ch)) {
+            break;
+        } else {
+            break;
+        }
+    }
+    return i;
+}
+
 inline unsigned int get_octet_count(unsigned char lead_octet)
 {
     // if the 0-bit (MSB) is 0, then 1 character
@@ -42,12 +59,6 @@ inline unsigned int get_octet_count(unsigned char lead_octet)
         return 5;
     else
         return 6;
-}
-
-// continuing octets = octets except for the leading octet
-inline unsigned int get_cont_octet_count(unsigned char lead_octet)
-{
-    return get_octet_count(lead_octet) - 1;
 }
 
 inline std::string_view char_at(std::string const &s, size_t start)
@@ -164,7 +175,7 @@ void JsonSanitizer::sanitize()
                         if (_isMap.empty()) {
                             _isMap.resize(_maximumNestingDepth, false);
                         }
-                        auto map = ch.front() == '{';
+                        auto map              = ch.front() == '{';
                         _isMap[_bracketDepth] = map;
                         ++_bracketDepth;
                         state = map ? State::START_MAP : State::START_ARRAY;
@@ -248,9 +259,10 @@ void JsonSanitizer::sanitize()
                                 switch (jca.front()) {
                                     case '/':
                                         end = n; // Worst case.
-                                        for (auto j = i + 2; j < n; j+=utf8::get_octet_count(j)) {
+                                        for (auto j = i + 2; j < n; j += utf8::get_octet_count(j)) {
                                             auto cch = utf8::char_at(_jsonish, j);
-                                            if (cch == "\n" || cch == "\r" || cch == "\xe2\x80\xa8" || cch == "\xe2\x80\xa9") {
+                                            if (cch == "\n" || cch == "\r" ||
+                                                cch == "\xe2\x80\xa8" || cch == "\xe2\x80\xa9") {
                                                 end = j + cch.length();
                                                 break;
                                             }
@@ -259,8 +271,8 @@ void JsonSanitizer::sanitize()
                                     case '*':
                                         end = n;
                                         if (i + 3 < n) {
-                                            for (auto j = i + 2;
-                                                 (j = _jsonish.find('/', j + 1)) != std::string_view::npos;) {
+                                            for (auto j = i + 2; (j = _jsonish.find('/', j + 1)) !=
+                                                                 std::string_view::npos;) {
                                                 if (_jsonish[j - 1] == '*') {
                                                     end = j + 1;
                                                     break;
@@ -280,9 +292,11 @@ void JsonSanitizer::sanitize()
                             auto tch = utf8::char_at(_jsonish, runEnd);
                             if (tch.size() == 1) {
                                 auto &tchf = tch.front();
-                                if ((('a' <= tchf) && (tchf <= 'z')) || (('0' <= tchf) && (tchf <= '9')) ||
-                                    (tchf == '+') || (tchf == '-') || (tchf == '.') ||
-                                    (('A' <= tchf) && (tchf <= 'Z')) || (tchf == '_') || (tchf == '$')) {
+                                if ((('a' <= tchf) && (tchf <= 'z')) ||
+                                    (('0' <= tchf) && (tchf <= '9')) || (tchf == '+') ||
+                                    (tchf == '-') || (tchf == '.') ||
+                                    (('A' <= tchf) && (tchf <= 'Z')) || (tchf == '_') ||
+                                    (tchf == '$')) {
                                     continue;
                                 }
                             }
@@ -294,25 +308,57 @@ void JsonSanitizer::sanitize()
                             break;
                         }
 
-                        state = requireValueState(i, state, true);
-                        auto &chf = ch.front();
-                        auto isNumber =
-                            (('0' <= chf) && (chf <= '9')) || (chf == '.') || (chf == '+') || (chf == '-');
+                        state          = requireValueState(i, state, true);
+                        auto &chf      = ch.front();
+                        auto  isNumber = (('0' <= chf) && (chf <= '9')) || (chf == '.') ||
+                                        (chf == '+') || (chf == '-');
                         auto bisKeyword = !isNumber && isKeyword(i, runEnd);
 
                         if (!(isNumber || bisKeyword)) {
                             // We're going to have to quote the output.  Further expand to
                             // include more of an unquoted token in a string.
-                            for (; runEnd < n; ++runEnd) {
+                            for (; runEnd < n; runEnd += utf8::get_octet_count(runEnd)) {
                                 if (isJsonSpecialChar(runEnd)) {
                                     break;
                                 }
                             }
-                            if (runEnd < n && jsonish.charAt(runEnd) == '"') {
+                            if ((runEnd < n) && (utf8::char_at(_jsonish, runEnd) == "\"")) {
                                 ++runEnd;
                             }
                         }
-
+                        if (state == State::AFTER_KEY) {
+                            // We need to quote whatever we have since it is used as a
+                            // property name in a map and only quoted strings can be used that
+                            // way in JSON.
+                            insert(i, '"');
+                            if (isNumber) {
+                                // By JS rules,
+                                //   { .5e-1: "bar" }
+                                // is the same as
+                                //   { "0.05": "bar" }
+                                // because a number literal is converted to its string form
+                                // before being used as a property name.
+                                canonicalizeNumber(i, runEnd);
+                                // We intentionally ignore the return value of canonicalize.
+                                // Uncanonicalizable numbers just get put straight through as
+                                // string values.
+                                insert(runEnd, '"');
+                            } else {
+                                sanitizeString(i, runEnd);
+                            }
+                        } else {
+                            if (isNumber) {
+                                // Convert hex and octal constants to decimal and ensure that
+                                // integer and fraction portions are not empty.
+                                normalizeNumber(i, runEnd);
+                            } else if (!isKeyword) {
+                                // Treat as an unquoted string literal.
+                                insert(i, '"');
+                                sanitizeString(i, runEnd);
+                            }
+                        }
+                        i = runEnd - 1;
+                        break;
                 }
             }
             if (abortLoop) {
@@ -321,6 +367,41 @@ void JsonSanitizer::sanitize()
         } catch (UnbracketedComma const &e) {
             elide(i, _jsonish.length());
             break;
+        }
+    }
+    if ((state == State::START_ARRAY) && (_bracketDepth == 0)) {
+        // No tokens.  Only whitespace
+        insert(n, "null");
+        state = State::AFTER_ELEMENT;
+    }
+
+    if (SUPER_VERBOSE_AND_SLOW_LOGGING) {
+        std::cerr << "state=" << toString(state) << ", sanitizedJson=" << _sanitizedJson
+                  << ", cleaned=" << _cleaned << ", bracketDepth=" << _bracketDepth << std::endl;
+    }
+
+    if (!_sanitizedJson.empty() || (_cleaned != 0) || (_bracketDepth != 0)) {
+        _sanitizedJson.append(_jsonish.substr(_cleaned, n - _cleaned));
+        _cleaned = n;
+
+        switch (state) {
+            case State::BEFORE_ELEMENT:
+            case State::BEFORE_KEY:
+                elideTrailingComma(n);
+                break;
+            case State::AFTER_KEY:
+                _sanitizedJson.append(":null");
+                break;
+            case State::BEFORE_VALUE:
+                _sanitizedJson.append("null");
+                break;
+            default:
+                break;
+        }
+
+        // Insert brackets to close unclosed content.
+        while (_bracketDepth != 0) {
+            _sanitizedJson.push_back(_isMap[--_bracketDepth] ? '}' : ']');
         }
     }
 }
@@ -499,8 +580,8 @@ void JsonSanitizer::sanitizeString(size_t start, size_t end)
             } else if (u32ch >= 0xFFFE) {
                 // These have to be split into surrogate pairs
                 uint32_t u32chprime = u32ch - 0x10000;
-                uint16_t w1         = 0xD800u + static_cast<uint16_t>((u32chprime & 0x000FFC00) >> 10);
-                uint16_t w2         = 0xDC00u + static_cast<uint16_t>(u32chprime & 0x000003FF);
+                uint16_t w1 = 0xD800u + static_cast<uint16_t>((u32chprime & 0x000FFC00) >> 10);
+                uint16_t w2 = 0xDC00u + static_cast<uint16_t>(u32chprime & 0x000003FF);
                 replace(i, i + ch.length(), "\\u");
                 for (int j = 4; --j >= 0;) {
                     _sanitizedJson.push_back(HEX_DIGITS[(w1 >> (j << 2)) & 0xf]);
@@ -573,6 +654,11 @@ void JsonSanitizer::insert(size_t pos, std::string_view s)
     replace(pos, pos, s);
 }
 
+void JsonSanitizer::insert(size_t pos, char s)
+{
+    replace(pos, pos, s);
+}
+
 void JsonSanitizer::elide(size_t start, size_t end)
 {
     if (_sanitizedJson.empty()) {
@@ -612,7 +698,57 @@ size_t JsonSanitizer::endOfQuotedString(std::string_view s, size_t start) const
 }
 
 void JsonSanitizer::elideTrailingComma(size_t closeBracketPos)
-{}
+{
+    // The content before closeBracketPos is stored in two places.
+    // 1. sanitizedJson
+    // 2. jsonish.substring(cleaned, closeBracketPos)
+    // We walk over whitespace characters in both right-to-left looking for a
+    // comma.
+    for (auto i = closeBracketPos; i >= _cleaned;
+         i -= utf8::backup_one_character_octect_count(reinterpret_cast<unsigned char const *>(
+                                                          &_jsonish[i]),
+                                                      i - _cleaned)) {
+        auto ch = utf8::char_at(_jsonish, i);
+        if (ch.length() == 1) {
+            auto &chf = ch.front();
+            switch (chf) {
+                case '\t':
+                case '\n':
+                case '\r':
+                case ' ':
+                    continue;
+                case ',':
+                    elide(i, i + 1);
+                    return;
+                default:
+                    throw AssertionError{std::string{utf8::char_at(_jsonish, i)}};
+            }
+        }
+    }
+    for (auto i = _sanitizedJson.length(); i >= 0;
+         i -= utf8::backup_one_character_octect_count(reinterpret_cast<unsigned char const *>(
+                                                          &_sanitizedJson[i]),
+                                                      _sanitizedJson.length() - i)) {
+        auto ch = utf8::char_at(_sanitizedJson, i);
+        if (ch.length() == 1) {
+            auto &chf = ch.front();
+            switch (chf) {
+                case '\t':
+                case '\n':
+                case '\r':
+                case ' ':
+                    continue;
+                case ',':
+                    _sanitizedJson.resize(i);
+                    return;
+                default:
+                    throw AssertionError{std::string{utf8::char_at(_sanitizedJson, i)}};
+            }
+        }
+    }
+    throw AssertionError{"Trailing comma not found in " + std::string{_jsonish} + " or " +
+                         _sanitizedJson};
+}
 
 void JsonSanitizer::normalizeNumber(size_t start, size_t end)
 {}
@@ -662,12 +798,33 @@ bool JsonSanitizer::isHexAt(size_t i) const
 }
 
 bool JsonSanitizer::isJsonSpecialChar(size_t i) const
-{}
+{
+    auto ch = utf8::char_at(_jsonish, i);
+    if (ch.length() == 1) {
+        auto &chf = ch.front();
+        if (chf <= ' ') {
+            return true;
+        }
+        switch (chf) {
+            case '"':
+            case ',':
+            case ':':
+            case '[':
+            case ']':
+            case '{':
+            case '}':
+                return true;
+            default:
+                return false;
+        }
+    }
+    return false;
+}
 
 // clang-format off
 void JsonSanitizer::appendHex(int n, int nDigits)
 {
-    for (unsigned int i = 0, x = static_cast<unsigned int>(n); i<nDigits; ++i, x >> 4) {
+    for (unsigned int i = 0, x = static_cast<unsigned int>(n); i<nDigits; ++i, x > > 4) {
         auto dig = static_cast<char>(x & 0xf);
         _sanitizedJson.push_back(dig +
                                  (dig < static_cast<char>(10) ? '0' : static_cast<char>('a' - 10)));
@@ -676,6 +833,18 @@ void JsonSanitizer::appendHex(int n, int nDigits)
 // clang-format on
 
 size_t JsonSanitizer::endOfDigitRun(size_t start, size_t limit) const
-{}
+{
+    for (auto end = start; end < limit; end += utf8::get_octet_count(_jsonish[end])) {
+        auto ch = utf8::char_at(_jsonish, end);
+        if (ch.length() == 1) {
+            auto &chf = ch.front();
+            if (!(('0' <= chf) && (chf <= '9'))) {
+                return end;
+            }
+        } else {
+            return end;
+        }
+    }
+}
 
 } // namespace com::google::json
