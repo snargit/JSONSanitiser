@@ -63,12 +63,12 @@ inline unsigned int get_octet_count(unsigned char lead_octet)
 
 inline std::string_view char_at(std::string const &s, size_t start)
 {
-    return std::string_view(s.data() + start, get_octet_count(start));
+    return std::string_view(s.data() + start, get_octet_count(s[start]));
 }
 
 inline std::string_view char_at(std::string_view const s, size_t start)
 {
-    return std::string_view(s.data() + start, get_octet_count(start));
+    return std::string_view(s.data() + start, get_octet_count(s[start]));
 }
 
 uint32_t to_utf32(std::string_view s)
@@ -259,7 +259,8 @@ void JsonSanitizer::sanitize()
                                 switch (jca.front()) {
                                     case '/':
                                         end = n; // Worst case.
-                                        for (auto j = i + 2; j < n; j += utf8::get_octet_count(j)) {
+                                        for (auto j = i + 2; j < n;
+                                             j += utf8::get_octet_count(_jsonish[j])) {
                                             auto cch = utf8::char_at(_jsonish, j);
                                             if (cch == "\n" || cch == "\r" ||
                                                 cch == "\xe2\x80\xa8" || cch == "\xe2\x80\xa9") {
@@ -317,7 +318,7 @@ void JsonSanitizer::sanitize()
                         if (!(isNumber || bisKeyword)) {
                             // We're going to have to quote the output.  Further expand to
                             // include more of an unquoted token in a string.
-                            for (; runEnd < n; runEnd += utf8::get_octet_count(runEnd)) {
+                            for (; runEnd < n; runEnd += utf8::get_octet_count(_jsonish[runEnd])) {
                                 if (isJsonSpecialChar(runEnd)) {
                                     break;
                                 }
@@ -751,13 +752,162 @@ void JsonSanitizer::elideTrailingComma(size_t closeBracketPos)
 }
 
 void JsonSanitizer::normalizeNumber(size_t start, size_t end)
-{}
+{
+    auto pos = start;
+    // Sign
+    if (pos < end) {
+        auto ch = utf8::char_at(_jsonish, pos);
+        if (ch.length() == 1) {
+            auto &chf = ch.front();
+            switch (chf) {
+                case '+':
+                    elide(pos, pos + 1);
+                    ++pos;
+                    break;
+                case '-':
+                    ++pos;
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+
+    // Integer part
+    auto intEnd = endOfDigitRun(pos, end);
+    if (auto ch = utf8::char_at(_jsonish, pos);
+        pos == intEnd) { // No empty integer parts allowed in JSON.
+        insert(pos, '0');
+    } else if ((ch.length() == 1) && ('0' == ch.front())) {
+        auto reencoded = false;
+        long value     = 0;
+        if (auto tch = utf8::char_at(_jsonish, intEnd);
+            ((intEnd - pos) == 1) && (intEnd < end) && (tch.length() == 1) &&
+            ('x' == (tch.front() | 32))) { // Recode hex.
+            for (auto tintEnd = intEnd + 1; tintEnd < end;
+                 tintEnd += utf8::get_octet_count(_jsonish[tintEnd])) {
+                auto nch = utf8::char_at(_jsonish, tintEnd);
+                if (nch.length() == 1) {
+                    auto nchf   = nch.front();
+                    auto digVal = 0;
+                    if (('0' <= nchf) && (nchf <= '9')) {
+                        digVal = nchf - '0';
+                    } else {
+                        nchf |= 32;
+                        if (('a' <= nchf) && (nchf <= 'f')) {
+                            digVal = nchf - ('a' - 10);
+                        } else {
+                            break;
+                        }
+                    }
+                    value = (value << 4) | digVal;
+                }
+            }
+            reencoded = true;
+        } else if (intEnd - pos > 1) { // Recode octal.
+            for (auto i = pos; i < intEnd; i += utf8::get_octet_count(_jsonish[i])) {
+                int digVal = utf8::char_at(_jsonish, i).front() - '0';
+                if (digVal < 0) {
+                    break;
+                }
+                value = (value << 3) | digVal;
+            }
+            reencoded = true;
+        }
+        if (reencoded) {
+            elide(pos, intEnd);
+            if (value < 0) {
+                // Underflow.
+                // Avoid multiple signs.
+                // Putting out the underflowed value is the least bad option.
+                //
+                // We could use BigInteger, but that won't help many clients,
+                // and there is a valid use case for underflow: hex-encoded uint64s.
+                //
+                // First, consume any sign so that we don't put out strings like
+                // --1
+                int lastIndex = _sanitizedJson.length() - 1;
+                if (lastIndex >= 0) {
+                    auto &last = _sanitizedJson[lastIndex];
+                    if (last == '-' || last == '+') {
+                        elide(lastIndex, lastIndex + 1);
+                        if (last == '-') {
+                            value = -value;
+                        }
+                    }
+                }
+            }
+            _sanitizedJson.append(std::to_string(value));
+        }
+    }
+    pos = intEnd;
+
+    // Optional fraction.
+    if (pos < end) {
+        if (auto ch = utf8::char_at(_jsonish, pos); (ch.length() == 1) && (ch.front() == '.')) {
+            ++pos;
+            int fractionEnd = endOfDigitRun(pos, end);
+            if (fractionEnd == pos) {
+                insert(pos, '0');
+            }
+            // JS eval will discard digits after 24(?) but will not treat them as a
+            // syntax error, and JSON allows arbitrary length fractions.
+            pos = fractionEnd;
+        }
+    }
+
+    // Optional exponent.
+    if (pos < end) {
+        if (auto ch = utf8::char_at(_jsonish, pos);
+            (ch.length() == 1) && 'e' == (ch.front() | 32)) {
+            ++pos;
+            if (pos < end) {
+                auto nch = utf8::char_at(_jsonish, pos);
+                if (nch.length() == 1) {
+                    switch (nch.front()) {
+                        // JSON allows explicit + in exponent but not for number as a whole.
+                        case '+':
+                        case '-':
+                            ++pos;
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
+            // JSON allows leading zeros on exponent part.
+            int expEnd = endOfDigitRun(pos, end);
+            if (expEnd == pos) {
+                insert(pos, '0');
+            }
+            pos = expEnd;
+        }
+    }
+    if (pos != end) {
+        elide(pos, end);
+    }
+}
 
 bool JsonSanitizer::canonicalizeNumber(size_t start, size_t end)
-{}
+{
+    elide(start, start);
+    int sanStart = _sanitizedJson.length();
+
+    normalizeNumber(start, end);
+
+    // Ensure that the number is on the output buffer.  Since this method is
+    // only called when we are quoting a number that appears where a property
+    // name is expected, we can force the sanitized form to contain it without
+    // affecting the fast-track for already valid inputs.
+    elide(end, end);
+    int sanEnd = _sanitizedJson.length();
+
+    return canonicalizeNumber(_sanitizedJson, sanStart, sanEnd);
+}
 
 bool JsonSanitizer::canonicalizeNumber(std::string &sanitizedJson, size_t sanStart, size_t sanEnd)
-{}
+{
+}
 
 bool JsonSanitizer::isKeyword(size_t start, size_t end) const
 {
@@ -824,7 +974,7 @@ bool JsonSanitizer::isJsonSpecialChar(size_t i) const
 // clang-format off
 void JsonSanitizer::appendHex(int n, int nDigits)
 {
-    for (unsigned int i = 0, x = static_cast<unsigned int>(n); i<nDigits; ++i, x > > 4) {
+    for (unsigned int i = 0, x = static_cast<unsigned int>(n); i<nDigits; ++i, x >> 4) {
         auto dig = static_cast<char>(x & 0xf);
         _sanitizedJson.push_back(dig +
                                  (dig < static_cast<char>(10) ? '0' : static_cast<char>('a' - 10)));
