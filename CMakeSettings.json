@@ -10,7 +10,33 @@
       "cmakeCommandArgs": "",
       "buildCommandArgs": "",
       "ctestCommandArgs": "",
-      "variables": []
+      "variables": [
+        {
+          "name": "GTEST_INCLUDE_DIR",
+          "value": "D:/googletest-release-1.10.0/out/install/x64-Debug/include",
+          "type": "PATH"
+        },
+        {
+          "name": "GTEST_LIBRARY_DEBUG",
+          "value": "D:/googletest-release-1.10.0/out/install/x64-Debug/lib/gtestd.lib",
+          "type": "FILEPATH"
+        },
+        {
+          "name": "GTEST_MAIN_LIBRARY_DEBUG",
+          "value": "D:/googletest-release-1.10.0/out/install/x64-Debug/lib/gtest_maind.lib",
+          "type": "FILEPATH"
+        },
+        {
+          "name": "GTEST_LIBRARY",
+          "value": "D:/googletest-release-1.10.0/out/install/x64-Debug/lib/gtestd.lib",
+          "type": "FILEPATH"
+        },
+        {
+          "name": "GTEST_MAIN_LIBRARY",
+          "value": "D:/googletest-release-1.10.0/out/install/x64-Debug/lib/gtest_maind.lib",
+          "type": "FILEPATH"
+        }
+      ]
     },
     {
       "name": "x64-Release",

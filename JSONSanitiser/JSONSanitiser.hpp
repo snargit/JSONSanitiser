@@ -1,4 +1,6 @@
-﻿#include <algorithm>
+﻿#include "jsonsanitiser_export.h"
+
+#include <algorithm>
 #include <cstddef>
 #include <stdexcept>
 #include <string>
@@ -30,7 +32,7 @@ public:
     {}
 };
 
-class JsonSanitizer final
+class JSONSANITISER_EXPORT JsonSanitizer final
 {
     std::string_view  _jsonish;
     int               _maximumNestingDepth           = MAXIMUM_NESTING_DEPTH;

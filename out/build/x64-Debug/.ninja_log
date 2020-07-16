@@ -1,0 +1,14 @@
+# ninja log v5
+0	1320	616617898	JSONSanitiser/CMakeFiles/JSONSanitiser.dir/JSONSanitiser.cpp.obj	33402690ba7bb312
+1320	2047	616617898	JSONSanitiser/JSONSanitiser.dll	bf5f492d89ca60a2
+1320	2047	616617898	JSONSanitiser/JSONSanitiser.lib	bf5f492d89ca60a2
+0	10	0	clean	63bc6ea4e62f3343
+1	822	616619663	JSONSanitiser/CMakeFiles/JSONSanitiser.dir/JSONSanitiser.cpp.obj	33402690ba7bb312
+1	580	616619774	JSONSanitiser/JSONSanitiser.dll	bf5f492d89ca60a2
+1	580	616619774	JSONSanitiser/JSONSanitiser.lib	bf5f492d89ca60a2
+1	1139	616622131	JSONSanitiser/CMakeFiles/JSONSanitiser.dir/JSONSanitiser.cpp.obj	bba95d4553f24d6d
+1	285	616622131	JSONSanitiser/JSONSanitiser.dll	bf5f492d89ca60a2
+1	285	616622131	JSONSanitiser/JSONSanitiser.lib	bf5f492d89ca60a2
+5	925	616622171	test/CMakeFiles/Test.dir/test.cpp.obj	6804cfac405201b2
+1	920	616622202	test/CMakeFiles/Test.dir/test.cpp.obj	6804cfac405201b2
+2	758	616622340	test/Test.exe	af7625171091aed6

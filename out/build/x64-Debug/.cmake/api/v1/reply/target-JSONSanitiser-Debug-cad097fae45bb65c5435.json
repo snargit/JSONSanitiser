@@ -2,7 +2,10 @@
 	"artifacts" : 
 	[
 		{
-			"path" : "JSONSanitiser/JSONSanitiser.exe"
+			"path" : "JSONSanitiser/JSONSanitiser.dll"
+		},
+		{
+			"path" : "JSONSanitiser/JSONSanitiser.lib"
 		},
 		{
 			"path" : "JSONSanitiser/JSONSanitiser.pdb"
@@ -13,7 +16,8 @@
 	{
 		"commands" : 
 		[
-			"add_executable"
+			"add_library",
+			"target_include_directories"
 		],
 		"files" : 
 		[
@@ -27,7 +31,13 @@
 			{
 				"command" : 0,
 				"file" : 0,
-				"line" : 7,
+				"line" : 9,
+				"parent" : 0
+			},
+			{
+				"command" : 1,
+				"file" : 0,
+				"line" : 11,
 				"parent" : 0
 			}
 		]
@@ -44,6 +54,23 @@
 					"fragment" : "-std:c++17"
 				}
 			],
+			"defines" : 
+			[
+				{
+					"define" : "JSONSanitiser_EXPORTS"
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 2,
+					"path" : "D:/repos/JSONSanitiser/JSONSanitiser"
+				},
+				{
+					"backtrace" : 2,
+					"path" : "D:/repos/JSONSanitiser/out/build/x64-Debug/JSONSanitiser"
+				}
+			],
 			"language" : "CXX",
 			"sourceIndexes" : 
 			[
@@ -57,11 +84,7 @@
 		"commandFragments" : 
 		[
 			{
-				"fragment" : "/DWIN32 /D_WINDOWS /W3 /GR /EHsc /MDd /Zi /Ob0 /Od /RTC1",
-				"role" : "flags"
-			},
-			{
-				"fragment" : "/machine:x64 /debug /INCREMENTAL /subsystem:console",
+				"fragment" : "/machine:x64 /debug /INCREMENTAL",
 				"role" : "flags"
 			},
 			{
@@ -72,7 +95,7 @@
 		"language" : "CXX"
 	},
 	"name" : "JSONSanitiser",
-	"nameOnDisk" : "JSONSanitiser.exe",
+	"nameOnDisk" : "JSONSanitiser.dll",
 	"paths" : 
 	{
 		"build" : "JSONSanitiser",
@@ -109,5 +132,5 @@
 			"sourceGroupIndex" : 1
 		}
 	],
-	"type" : "EXECUTABLE"
+	"type" : "SHARED_LIBRARY"
 }
