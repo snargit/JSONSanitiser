@@ -420,12 +420,29 @@ std::string_view JsonSanitizer::toString() const noexcept
     return !_sanitizedJson.empty() ? std::string_view{_sanitizedJson} : _jsonish;
 }
 
+///
+/// Ensures that the output corresponding to {\code jsonish[start:end]} is a
+/// valid JSON string that has the same meaning when parsed by Javascript
+/// {\code eval}.
+/// <ul>
+///   <li>Making sure that it is fully quoted with double-quotes.
+///   <li>Escaping any Javascript newlines : CR, LF, U+2028, U+2029
+///   <li>Escaping HTML special characters to allow it to be safely embedded
+///       in HTML {\code <script>} elements and XML {\code <!CDATA[...]]>}
+///       sections.
+///   <li>Rewrite hex, octal, and other escapes that are valid in Javascript
+///       but not in JSON.
+/// </ul>
+/// \param start inclusive
+/// \param end   exclusive
+///
 void JsonSanitizer::sanitizeString(size_t start, size_t end)
 {
     auto closed = false;
     auto i      = start;
     while (i < end) {
         auto ch = utf8::char_at(_jsonish, i);
+        // Not newlines in JSON but unparseable by JS eval.
         if (ch == "\xe2\x80\xa8") {
             replace(i, i + ch.length(), "\\u2028");
         } else if (ch == "\xe2\x80\xa9") {
@@ -447,12 +464,15 @@ void JsonSanitizer::sanitizeString(size_t start, size_t end)
                 }
             }
             switch (chf) {
+                // Fixup newlines.
                 case '\n':
                     replace(i, i + 1, "\\n");
                     break;
                 case '\r':
                     replace(i, i + 1, "\\r");
                     break;
+                // String delimiting quotes that need to be converted : 'foo' -> "foo"
+                // or internal quotes that might need to be escaped : f"o -> f\"o.
                 case '"':
                 case '\'':
                     if (i == start) {
@@ -463,6 +483,8 @@ void JsonSanitizer::sanitizeString(size_t start, size_t end)
                         if ((i + ch.length()) == end) {
                             auto startDelim = utf8::char_at(_jsonish, start);
                             if (startDelim != "\'") {
+                                // If we're sanitizing a string whose start was inferred, then
+                                // treat '"' as closing regardless.
                                 startDelim = "\"";
                             }
                             closed = startDelim == ch;
@@ -476,7 +498,21 @@ void JsonSanitizer::sanitizeString(size_t start, size_t end)
                         }
                     }
                     break;
+                // Embedding. Disallow <script, </script, <!--, --> and ]]> in string
+                // literals so that the output can be embedded in HTML script elements
+                // and in XML CDATA sections without affecting the parser state.
+                // References:
+                // https://www.w3.org/TR/html53/semantics-scripting.html#restrictions-for-contents-of-script-elements
+                // https://www.w3.org/TR/html53/syntax.html#script-data-escaped-state
+                // https://www.w3.org/TR/html53/syntax.html#script-data-double-escaped-state
+                // https://www.w3.org/TR/xml/#sec-cdata-sect
                 case '<':
+                    // Disallow <!--, which lets the HTML parser switch into the "script
+                    // data escaped" state.
+                    // Disallow <script, which followed by various characters lets the
+                    // HTML parser switch into or out of the "script data double escaped"
+                    // state.
+                    // Disallow </script, which ends a script block.
                     if ((i + 3) >= end) {
                         break;
                     }
@@ -498,9 +534,11 @@ void JsonSanitizer::sanitizeString(size_t start, size_t end)
                     }
                     break;
                 case '>':
+                    // Disallow -->, which lets the HTML parser switch out of the "script
+                    // data escaped" or "script data double escaped" state.
                     if (((i - 2) >= start) && (utf8::char_at(_jsonish, i - 2) == "-") &&
                         (utf8::char_at(_jsonish, i - 1) == "-")) {
-                        replace(i, i + 1, "\\u005d");
+                        replace(i, i + 1, "\\u003e");
                     }
                     break;
                 case ']':
@@ -509,6 +547,7 @@ void JsonSanitizer::sanitizeString(size_t start, size_t end)
                         replace(i, i + 1, "\\u005d");
                     }
                     break;
+                // Normalize escape sequences.
                 case '\\':
                     if (i + 1 == end) {
                         elide(i, i + 1);
