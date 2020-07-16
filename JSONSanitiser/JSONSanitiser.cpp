@@ -738,11 +738,12 @@ void JsonSanitizer::elideTrailingComma(size_t closeBracketPos)
             }
         }
     }
-    for (auto i = _sanitizedJson.length(); i >= 0;
+    for (intptr_t i = _sanitizedJson.length(); i >= 0;
          i -= utf8::backup_one_character_octect_count(reinterpret_cast<unsigned char const *>(
-                                                          &_sanitizedJson[i]),
-                                                      _sanitizedJson.length() - i)) {
-        auto ch = utf8::char_at(_sanitizedJson, i);
+                                                          &_sanitizedJson[static_cast<size_t>(i)]),
+                                                      _sanitizedJson.length() -
+                                                          static_cast<size_t>(i))) {
+        auto ch = utf8::char_at(_sanitizedJson, static_cast<size_t>(i));
         if (ch.length() == 1) {
             auto &chf = ch.front();
             switch (chf) {
@@ -752,10 +753,11 @@ void JsonSanitizer::elideTrailingComma(size_t closeBracketPos)
                 case ' ':
                     continue;
                 case ',':
-                    _sanitizedJson.resize(i);
+                    _sanitizedJson.resize(static_cast<size_t>(i));
                     return;
                 default:
-                    throw AssertionError{std::string{utf8::char_at(_sanitizedJson, i)}};
+                    throw AssertionError{
+                        std::string{utf8::char_at(_sanitizedJson, static_cast<size_t>(i))}};
             }
         }
     }
@@ -1098,7 +1100,7 @@ bool JsonSanitizer::canonicalizeNumber(std::string &sanitizedJson, size_t sanSta
         // character '0', followed by the k digits of the decimal representation of
         // s.
     } else if (-6 < n && n <= 0) {
-        auto tmp = std::string_view{"0.000000"}.substr(0, 2 - n);
+        auto tmp = std::string_view{"0.000000"}.substr(0, 2 - static_cast<intptr_t>(n));
         sanitizedJson.insert(intStart, tmp.data(), tmp.size());
     } else {
 
