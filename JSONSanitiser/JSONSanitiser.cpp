@@ -930,12 +930,12 @@ bool JsonSanitizer::canonicalizeNumber(std::string &sanitizedJson, size_t sanSta
 
     // Figure out where the parts of the number start and end.
     size_t intEnd, fractionStart, fractionEnd, expStart, expEnd;
-    auto   ch       = utf8::char_at(_sanitizedJson, sanStart);
+    auto   ch       = utf8::char_at(sanitizedJson, sanStart);
     size_t offset   = ((ch.size() == 1) && (ch.front() == '-')) ? 1 : 0;
     auto   intStart = sanStart + offset;
     for (intEnd = intStart; intEnd < sanEnd;
-         intEnd += utf8::get_octet_count(_sanitizedJson[intEnd])) {
-        ch = utf8::char_at(_sanitizedJson, intEnd);
+         intEnd += utf8::get_octet_count(sanitizedJson[intEnd])) {
+        ch = utf8::char_at(sanitizedJson, intEnd);
         if (ch.size() == 1) {
             auto &chf = ch.front();
             if (!('0' <= chf && chf <= '9')) {
@@ -946,7 +946,7 @@ bool JsonSanitizer::canonicalizeNumber(std::string &sanitizedJson, size_t sanSta
         }
     }
     if (intEnd != sanEnd) {
-        ch = utf8::char_at(_sanitizedJson, intEnd);
+        ch = utf8::char_at(sanitizedJson, intEnd);
     } else {
         ch = {};
     }
@@ -955,8 +955,8 @@ bool JsonSanitizer::canonicalizeNumber(std::string &sanitizedJson, size_t sanSta
     } else {
         fractionStart = intEnd + 1;
         for (fractionEnd = fractionStart; fractionEnd < sanEnd;
-             fractionEnd += utf8::get_octet_count(_sanitizedJson[fractionEnd])) {
-            ch = utf8::char_at(_sanitizedJson, fractionEnd);
+             fractionEnd += utf8::get_octet_count(sanitizedJson[fractionEnd])) {
+            ch = utf8::char_at(sanitizedJson, fractionEnd);
             if (ch.size() == 1) {
                 auto &chf = ch.front();
                 if (!('0' <= chf && chf <= '9')) {
@@ -970,10 +970,10 @@ bool JsonSanitizer::canonicalizeNumber(std::string &sanitizedJson, size_t sanSta
     if (fractionEnd == sanEnd) {
         expStart = expEnd = sanEnd;
     } else {
-        ch = utf8::char_at(_sanitizedJson, fractionEnd);
+        ch = utf8::char_at(sanitizedJson, fractionEnd);
         assert((ch.size() == 1) && ('e' == (ch.front() | 32)));
         expStart = fractionEnd + 1;
-        ch       = utf8::char_at(_sanitizedJson, expStart);
+        ch       = utf8::char_at(sanitizedJson, expStart);
         if ((ch.size() == 1) && (ch.front() == '+')) {
             ++expStart;
         }
@@ -986,7 +986,7 @@ bool JsonSanitizer::canonicalizeNumber(std::string &sanitizedJson, size_t sanSta
     auto exp = 0;
     if (expEnd != expStart) {
         if (auto [p, ec] =
-                std::from_chars(&_sanitizedJson[expStart], &_sanitizedJson[expEnd], exp, 10);
+                std::from_chars(&sanitizedJson[expStart], &sanitizedJson[expEnd], exp, 10);
             ec != std::errc{}) {
             return false;
         }
@@ -1014,8 +1014,8 @@ bool JsonSanitizer::canonicalizeNumber(std::string &sanitizedJson, size_t sanSta
     auto zero           = true;
     auto digitOutPos    = intStart;
     auto nZeroesPending = 0;
-    for (auto i = intStart; i < fractionEnd; i += utf8::get_octet_count(_sanitizedJson[i])) {
-        ch = utf8::char_at(_sanitizedJson, i);
+    for (auto i = intStart; i < fractionEnd; i += utf8::get_octet_count(sanitizedJson[i])) {
+        ch = utf8::char_at(sanitizedJson, i);
         if (ch.size() == 1) {
             auto &chf = ch.front();
             if (chf == '.') {
@@ -1059,11 +1059,11 @@ bool JsonSanitizer::canonicalizeNumber(std::string &sanitizedJson, size_t sanSta
                 }
 
                 // TODO: limit s to 21 digits?
-                _sanitizedJson[digitOutPos++] = vdigit;
+                sanitizedJson[digitOutPos++] = vdigit;
             }
         }
     }
-    _sanitizedJson.resize(digitOutPos);
+    sanitizedJson.resize(digitOutPos);
     // Number of digits in decimal representation of s.
     auto const k = static_cast<int>(digitOutPos - intStart);
 
@@ -1073,8 +1073,8 @@ bool JsonSanitizer::canonicalizeNumber(std::string &sanitizedJson, size_t sanSta
 
     if (zero) { // There are no non-zero decimal digits.
         // 2. If m is +0 or -0, return the String "0".
-        _sanitizedJson.resize(sanStart); // Elide any sign.
-        _sanitizedJson.push_back('0');
+        sanitizedJson.resize(sanStart); // Elide any sign.
+        sanitizedJson.push_back('0');
         return true;
     }
 
@@ -1083,7 +1083,7 @@ bool JsonSanitizer::canonicalizeNumber(std::string &sanitizedJson, size_t sanSta
     // followed by n-k occurrences of the character '0'.
     if ((k <= n) && (n <= 21)) {
         for (auto i = k; i < n; ++i) {
-            _sanitizedJson.push_back('0');
+            sanitizedJson.push_back('0');
         }
 
         // 7. If 0 < n <= 21, return the String consisting of the most significant n
@@ -1091,7 +1091,7 @@ bool JsonSanitizer::canonicalizeNumber(std::string &sanitizedJson, size_t sanSta
         // '.', followed by the remaining k-n digits of the decimal representation
         // of s.
     } else if ((0 < n) && (n <= 21)) {
-        _sanitizedJson.insert(std::next(std::cbegin(_sanitizedJson), intStart + n), '.');
+        sanitizedJson.insert(std::next(std::cbegin(sanitizedJson), intStart + n), '.');
 
         // 8. If -6 < n <= 0, return the String consisting of the character '0',
         // followed by a decimal point '.', followed by -n occurrences of the
@@ -1099,7 +1099,7 @@ bool JsonSanitizer::canonicalizeNumber(std::string &sanitizedJson, size_t sanSta
         // s.
     } else if (-6 < n && n <= 0) {
         auto tmp = std::string_view{"0.000000"}.substr(0, 2 - n);
-        _sanitizedJson.insert(intStart, tmp.data(), tmp.size());
+        sanitizedJson.insert(intStart, tmp.data(), tmp.size());
     } else {
 
         // 9. Otherwise, if k = 1, return the String consisting of the single
@@ -1118,12 +1118,12 @@ bool JsonSanitizer::canonicalizeNumber(std::string &sanitizedJson, size_t sanSta
             // followed by the decimal representation of the integer abs(n-1) (with
             // no leading zeros).
         } else {
-            _sanitizedJson.insert(std::next(std::cbegin(_sanitizedJson), intStart + 1), '.');
+            sanitizedJson.insert(std::next(std::cbegin(sanitizedJson), intStart + 1), '.');
         }
         auto const nLess1 = n - 1;
-        _sanitizedJson.push_back('e');
-        _sanitizedJson.push_back((nLess1 < 0) ? '-' : '+');
-        _sanitizedJson.append(std::to_string(std::abs(nLess1)));
+        sanitizedJson.push_back('e');
+        sanitizedJson.push_back((nLess1 < 0) ? '-' : '+');
+        sanitizedJson.append(std::to_string(std::abs(nLess1)));
     }
     return true;
 }
