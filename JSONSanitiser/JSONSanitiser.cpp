@@ -1,8 +1,12 @@
 ﻿#include "JSONSanitiser.hpp"
 
 #include <array>
+#include <cassert>
+#include <charconv>
+#include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <iterator>
 
 namespace {
 std::array<char, 16> const HEX_DIGITS = {'0', '1', '2', '3', '4', '5', '6', '7',
@@ -88,34 +92,34 @@ uint32_t to_utf32(std::string_view s)
             c = static_cast<uint8_t>(s[0]) & ~UTF8_ONE_BYTE_MASK;
             break;
         case 2:
-            c = (static_cast<uint8_t>(s[0]) & ~UTF8_TWO_BYTE_MASK) << 6 |
-                (static_cast<uint8_t>(s[1]) & UTF8_CONTINUATION_MASK);
+            c = static_cast<uint32_t>(static_cast<uint8_t>(s[0]) & ~UTF8_TWO_BYTE_MASK) << 6 |
+                static_cast<uint32_t>(static_cast<uint8_t>(s[1]) & UTF8_CONTINUATION_MASK);
             break;
         case 3:
-            c = (static_cast<uint8_t>(s[0]) & ~UTF8_THREE_BYTE_MASK) << 12 |
-                (static_cast<uint8_t>(s[1]) & UTF8_CONTINUATION_MASK) << 6 |
-                (static_cast<uint8_t>(s[2]) & UTF8_CONTINUATION_MASK);
+            c = static_cast<uint32_t>(static_cast<uint8_t>(s[0]) & ~UTF8_THREE_BYTE_MASK) << 12 |
+                static_cast<uint32_t>(static_cast<uint8_t>(s[1]) & UTF8_CONTINUATION_MASK) << 6 |
+                static_cast<uint32_t>(static_cast<uint8_t>(s[2]) & UTF8_CONTINUATION_MASK);
             break;
         case 4:
-            c = (static_cast<uint8_t>(s[0]) & ~UTF8_FOUR_BYTE_MASK) << 18 |
-                (static_cast<uint8_t>(s[1]) & UTF8_CONTINUATION_MASK) << 12 |
-                (static_cast<uint8_t>(s[2]) & UTF8_CONTINUATION_MASK) << 6 |
-                (static_cast<uint8_t>(s[3]) & UTF8_CONTINUATION_MASK);
+            c = static_cast<uint32_t>(static_cast<uint8_t>(s[0]) & ~UTF8_FOUR_BYTE_MASK) << 18 |
+                static_cast<uint32_t>(static_cast<uint8_t>(s[1]) & UTF8_CONTINUATION_MASK) << 12 |
+                static_cast<uint32_t>(static_cast<uint8_t>(s[2]) & UTF8_CONTINUATION_MASK) << 6 |
+                static_cast<uint32_t>(static_cast<uint8_t>(s[3]) & UTF8_CONTINUATION_MASK);
             break;
         case 5:
-            c = (static_cast<uint8_t>(s[0]) & ~UTF8_FIVE_BYTE_MASK) << 24 |
-                (static_cast<uint8_t>(s[1]) & UTF8_CONTINUATION_MASK) << 18 |
-                (static_cast<uint8_t>(s[2]) & UTF8_CONTINUATION_MASK) << 12 |
-                (static_cast<uint8_t>(s[3]) & UTF8_CONTINUATION_MASK) << 6 |
-                (static_cast<uint8_t>(s[4]) & UTF8_CONTINUATION_MASK);
+            c = static_cast<uint32_t>(static_cast<uint8_t>(s[0]) & ~UTF8_FIVE_BYTE_MASK) << 24 |
+                static_cast<uint32_t>(static_cast<uint8_t>(s[1]) & UTF8_CONTINUATION_MASK) << 18 |
+                static_cast<uint32_t>(static_cast<uint8_t>(s[2]) & UTF8_CONTINUATION_MASK) << 12 |
+                static_cast<uint32_t>(static_cast<uint8_t>(s[3]) & UTF8_CONTINUATION_MASK) << 6 |
+                static_cast<uint32_t>(static_cast<uint8_t>(s[4]) & UTF8_CONTINUATION_MASK);
             break;
         case 6:
-            c = (static_cast<uint8_t>(s[0]) & ~UTF8_FIVE_BYTE_MASK) << 32 |
-                (static_cast<uint8_t>(s[1]) & UTF8_CONTINUATION_MASK) << 24 |
-                (static_cast<uint8_t>(s[2]) & UTF8_CONTINUATION_MASK) << 18 |
-                (static_cast<uint8_t>(s[3]) & UTF8_CONTINUATION_MASK) << 12 |
-                (static_cast<uint8_t>(s[4]) & UTF8_CONTINUATION_MASK) << 6 |
-                (static_cast<uint8_t>(s[5]) & UTF8_CONTINUATION_MASK);
+            c = static_cast<uint32_t>(static_cast<uint8_t>(s[0]) & ~UTF8_FIVE_BYTE_MASK) << 30 |
+                static_cast<uint32_t>(static_cast<uint8_t>(s[1]) & UTF8_CONTINUATION_MASK) << 24 |
+                static_cast<uint32_t>(static_cast<uint8_t>(s[2]) & UTF8_CONTINUATION_MASK) << 18 |
+                static_cast<uint32_t>(static_cast<uint8_t>(s[3]) & UTF8_CONTINUATION_MASK) << 12 |
+                static_cast<uint32_t>(static_cast<uint8_t>(s[4]) & UTF8_CONTINUATION_MASK) << 6 |
+                static_cast<uint32_t>(static_cast<uint8_t>(s[5]) & UTF8_CONTINUATION_MASK);
             break;
     }
     return c;
@@ -170,7 +174,8 @@ void JsonSanitizer::sanitize()
                         elide(i, i + 1);
                         break;
                     case '{':
-                    case '[':
+                    case '[': {
+
                         state = requireValueState(i, state, false);
                         if (_isMap.empty()) {
                             _isMap.resize(_maximumNestingDepth, false);
@@ -179,7 +184,7 @@ void JsonSanitizer::sanitize()
                         _isMap[_bracketDepth] = map;
                         ++_bracketDepth;
                         state = map ? State::START_MAP : State::START_ARRAY;
-                        break;
+                    } break;
                     case '}':
                     case ']':
                         if (_bracketDepth == 0) {
@@ -205,13 +210,15 @@ void JsonSanitizer::sanitize()
                                 break;
                         }
                         --_bracketDepth;
-                        auto closeBracket = _isMap[_bracketDepth] ? '}' : ']';
-                        if (ch.front() != closeBracket) {
-                            replace(i, i + 1, closeBracket);
+                        {
+                            auto closeBracket = _isMap[_bracketDepth] ? '}' : ']';
+                            if (ch.front() != closeBracket) {
+                                replace(i, i + 1, closeBracket);
+                            }
+                            state = ((_bracketDepth == 0) || (!_isMap[_bracketDepth - 1])) ?
+                                        State::AFTER_ELEMENT :
+                                        State::AFTER_VALUE;
                         }
-                        state = ((_bracketDepth == 0) || (!_isMap[_bracketDepth - 1])) ?
-                                    State::AFTER_ELEMENT :
-                                    State::AFTER_VALUE;
                         break;
                     case ',':
                         if (_bracketDepth == 0) {
@@ -251,7 +258,8 @@ void JsonSanitizer::sanitize()
                             elide(i, i + 1);
                         }
                         break;
-                    case '/':
+                    case '/': {
+
                         auto end = i + 1;
                         if (end < n) {
                             auto jca = utf8::char_at(_jsonish, end);
@@ -286,7 +294,7 @@ void JsonSanitizer::sanitize()
                         }
                         elide(i, end);
                         i = end - 1;
-                        break;
+                    } break;
                     default:
                         auto runEnd = i;
                         for (; runEnd < n; ++runEnd) {
@@ -352,7 +360,7 @@ void JsonSanitizer::sanitize()
                                 // Convert hex and octal constants to decimal and ensure that
                                 // integer and fraction portions are not empty.
                                 normalizeNumber(i, runEnd);
-                            } else if (!isKeyword) {
+                            } else if (!bisKeyword) {
                                 // Treat as an unquoted string literal.
                                 insert(i, '"');
                                 sanitizeString(i, runEnd);
@@ -365,7 +373,7 @@ void JsonSanitizer::sanitize()
             if (abortLoop) {
                 break;
             }
-        } catch (UnbracketedComma const &e) {
+        } catch (UnbracketedComma const &) {
             elide(i, _jsonish.length());
             break;
         }
@@ -472,18 +480,20 @@ void JsonSanitizer::sanitizeString(size_t start, size_t end)
                     if ((i + 3) >= end) {
                         break;
                     }
-                    auto const ofst = i + 1;
-                    auto       c1   = utf8::char_at(_jsonish, ofst);
-                    auto       c2   = utf8::char_at(_jsonish, ofst + c1.length());
-                    auto       c3   = utf8::char_at(_jsonish, ofst + c1.length() + c2.length());
-                    if ((c1.length() == 1) && (c2.length() == 1) && (c3.length() == 1)) {
-                        auto lc1 = static_cast<char>(c1.front() | 32);
-                        auto lc2 = static_cast<char>(c2.front() | 32);
-                        auto lc3 = static_cast<char>(c3.front() | 32);
-                        if ((c1 == "!" && c2 == "-" && c3 == "-") ||
-                            (lc1 == 's' && lc2 == 'c' && lc3 == 'r') ||
-                            (c1 == "/" && lc2 == 's' && lc3 == 'c')) {
-                            replace(i, ofst, "\\u003c");
+                    {
+                        auto const ofst = i + 1;
+                        auto       c1   = utf8::char_at(_jsonish, ofst);
+                        auto       c2   = utf8::char_at(_jsonish, ofst + c1.length());
+                        auto       c3   = utf8::char_at(_jsonish, ofst + c1.length() + c2.length());
+                        if ((c1.length() == 1) && (c2.length() == 1) && (c3.length() == 1)) {
+                            auto lc1 = static_cast<char>(c1.front() | 32);
+                            auto lc2 = static_cast<char>(c2.front() | 32);
+                            auto lc3 = static_cast<char>(c3.front() | 32);
+                            if ((c1 == "!" && c2 == "-" && c3 == "-") ||
+                                (lc1 == 's' && lc2 == 'c' && lc3 == 'r') ||
+                                (c1 == "/" && lc2 == 's' && lc3 == 'c')) {
+                                replace(i, ofst, "\\u003c");
+                            }
                         }
                     }
                     break;
@@ -504,64 +514,66 @@ void JsonSanitizer::sanitizeString(size_t start, size_t end)
                         elide(i, i + 1);
                         break;
                     }
-                    auto sch = utf8::char_at(_jsonish, i + 1);
-                    if (sch.length() == 1) {
-                        switch (sch.front()) {
-                            case 'b':
-                            case 'f':
-                            case 'n':
-                            case 'r':
-                            case 't':
-                            case '\\':
-                            case '/':
-                            case '"':
-                                ++i;
-                                break;
-                            case 'x':
-                                if (((i + 4) < end) && isHexAt(i + 2) && isHexAt(i + 3)) {
-                                    replace(i, i + 2, "\\u00"); // \xab -> \u00ab
-                                    i += 3;
+                    {
+                        auto sch = utf8::char_at(_jsonish, i + 1);
+                        if (sch.length() == 1) {
+                            switch (sch.front()) {
+                                case 'b':
+                                case 'f':
+                                case 'n':
+                                case 'r':
+                                case 't':
+                                case '\\':
+                                case '/':
+                                case '"':
+                                    ++i;
                                     break;
-                                }
-                                elide(i, i + 1);
-                                break;
-                            case 'u':
-                                if (((i + 6) < end) && isHexAt(i + 2) && isHexAt(i + 3) &&
-                                    isHexAt(i + 4) && isHexAt(i + 5)) {
-                                    i += 5;
+                                case 'x':
+                                    if (((i + 4) < end) && isHexAt(i + 2) && isHexAt(i + 3)) {
+                                        replace(i, i + 2, "\\u00"); // \xab -> \u00ab
+                                        i += 3;
+                                        break;
+                                    }
+                                    elide(i, i + 1);
                                     break;
-                                }
-                                elide(i, i + 1);
-                                break;
-                            case '0':
-                            case '1':
-                            case '2':
-                            case '3':
-                            case '4':
-                            case '5':
-                            case '6':
-                            case '7':
-                                auto octalEnd = i + 1;
-                                if (((octalEnd + 1) < end) && isOctAt(octalEnd + 1)) {
-                                    ++octalEnd;
-                                    if (((ch.front() <= '3')) && ((octalEnd + 1) < end) &&
-                                        isOctAt(octalEnd + 1)) {
+                                case 'u':
+                                    if (((i + 6) < end) && isHexAt(i + 2) && isHexAt(i + 3) &&
+                                        isHexAt(i + 4) && isHexAt(i + 5)) {
+                                        i += 5;
+                                        break;
+                                    }
+                                    elide(i, i + 1);
+                                    break;
+                                case '0':
+                                case '1':
+                                case '2':
+                                case '3':
+                                case '4':
+                                case '5':
+                                case '6':
+                                case '7': {
+                                    auto octalEnd = i + 1;
+                                    if (((octalEnd + 1) < end) && isOctAt(octalEnd + 1)) {
                                         ++octalEnd;
+                                        if (((ch.front() <= '3')) && ((octalEnd + 1) < end) &&
+                                            isOctAt(octalEnd + 1)) {
+                                            ++octalEnd;
+                                        }
+                                        int value = 0;
+                                        for (auto j = i; j < octalEnd; ++j) {
+                                            auto  jca  = utf8::char_at(_jsonish, j);
+                                            auto &jcaf = jca.front();
+                                            value      = (value << 3) | (jcaf - '0');
+                                        }
+                                        replace(i + 1, octalEnd, "u00");
+                                        appendHex(value, 2);
                                     }
-                                    int value = 0;
-                                    for (auto j = i; j < octalEnd; ++j) {
-                                        auto  jca  = utf8::char_at(_jsonish, j);
-                                        auto &jcaf = jca.front();
-                                        value      = (value << 3) | (jcaf - '0');
-                                    }
-                                    replace(i + 1, octalEnd, "u00");
-                                    appendHex(value, 2);
-                                }
-                                i = octalEnd - 1;
-                                break;
-                            default:
-                                elide(i, i + 1);
-                                break;
+                                    i = octalEnd - 1;
+                                } break;
+                                default:
+                                    elide(i, i + 1);
+                                    break;
+                            }
                         }
                     }
                     break;
@@ -826,7 +838,7 @@ void JsonSanitizer::normalizeNumber(size_t start, size_t end)
                 //
                 // First, consume any sign so that we don't put out strings like
                 // --1
-                int lastIndex = _sanitizedJson.length() - 1;
+                auto lastIndex = _sanitizedJson.length() - 1;
                 if (lastIndex >= 0) {
                     auto &last = _sanitizedJson[lastIndex];
                     if (last == '-' || last == '+') {
@@ -846,7 +858,7 @@ void JsonSanitizer::normalizeNumber(size_t start, size_t end)
     if (pos < end) {
         if (auto ch = utf8::char_at(_jsonish, pos); (ch.length() == 1) && (ch.front() == '.')) {
             ++pos;
-            int fractionEnd = endOfDigitRun(pos, end);
+            auto fractionEnd = endOfDigitRun(pos, end);
             if (fractionEnd == pos) {
                 insert(pos, '0');
             }
@@ -876,7 +888,7 @@ void JsonSanitizer::normalizeNumber(size_t start, size_t end)
                 }
             }
             // JSON allows leading zeros on exponent part.
-            int expEnd = endOfDigitRun(pos, end);
+            auto expEnd = endOfDigitRun(pos, end);
             if (expEnd == pos) {
                 insert(pos, '0');
             }
@@ -891,7 +903,7 @@ void JsonSanitizer::normalizeNumber(size_t start, size_t end)
 bool JsonSanitizer::canonicalizeNumber(size_t start, size_t end)
 {
     elide(start, start);
-    int sanStart = _sanitizedJson.length();
+    auto sanStart = _sanitizedJson.length();
 
     normalizeNumber(start, end);
 
@@ -900,13 +912,220 @@ bool JsonSanitizer::canonicalizeNumber(size_t start, size_t end)
     // name is expected, we can force the sanitized form to contain it without
     // affecting the fast-track for already valid inputs.
     elide(end, end);
-    int sanEnd = _sanitizedJson.length();
+    auto sanEnd = _sanitizedJson.length();
 
     return canonicalizeNumber(_sanitizedJson, sanStart, sanEnd);
 }
 
 bool JsonSanitizer::canonicalizeNumber(std::string &sanitizedJson, size_t sanStart, size_t sanEnd)
 {
+    // Now we perform several steps.
+    // 1. Convert from scientific notation to regular or vice-versa based on
+    //    normalized exponent.
+    // 2. Remove trailing zeroes from the fraction and truncate it to 24 digits.
+    // 3. Elide the fraction entirely if it is ".0".
+    // 4. Convert any 'E' that separates the exponent to lower-case.
+    // 5. Elide any minus sign on a zero value.
+    // to convert the number to its canonical JS string form.
+
+    // Figure out where the parts of the number start and end.
+    size_t intEnd, fractionStart, fractionEnd, expStart, expEnd;
+    auto   ch       = utf8::char_at(_sanitizedJson, sanStart);
+    size_t offset   = ((ch.size() == 1) && (ch.front() == '-')) ? 1 : 0;
+    auto   intStart = sanStart + offset;
+    for (intEnd = intStart; intEnd < sanEnd;
+         intEnd += utf8::get_octet_count(_sanitizedJson[intEnd])) {
+        ch = utf8::char_at(_sanitizedJson, intEnd);
+        if (ch.size() == 1) {
+            auto &chf = ch.front();
+            if (!('0' <= chf && chf <= '9')) {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    if (intEnd != sanEnd) {
+        ch = utf8::char_at(_sanitizedJson, intEnd);
+    } else {
+        ch = {};
+    }
+    if ((intEnd == sanEnd) || ((ch.size() == 1) && ('.' != ch.front()))) {
+        fractionStart = fractionEnd = intEnd;
+    } else {
+        fractionStart = intEnd + 1;
+        for (fractionEnd = fractionStart; fractionEnd < sanEnd;
+             fractionEnd += utf8::get_octet_count(_sanitizedJson[fractionEnd])) {
+            ch = utf8::char_at(_sanitizedJson, fractionEnd);
+            if (ch.size() == 1) {
+                auto &chf = ch.front();
+                if (!('0' <= chf && chf <= '9')) {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+    }
+    if (fractionEnd == sanEnd) {
+        expStart = expEnd = sanEnd;
+    } else {
+        ch = utf8::char_at(_sanitizedJson, fractionEnd);
+        assert((ch.size() == 1) && ('e' == (ch.front() | 32)));
+        expStart = fractionEnd + 1;
+        ch       = utf8::char_at(_sanitizedJson, expStart);
+        if ((ch.size() == 1) && (ch.front() == '+')) {
+            ++expStart;
+        }
+        expEnd = sanEnd;
+    }
+
+    assert((intStart <= intEnd) && (intEnd <= fractionStart) && (fractionStart <= fractionEnd) &&
+           (fractionEnd <= expStart) && (expStart <= expEnd));
+
+    auto exp = 0;
+    if (expEnd != expStart) {
+        if (auto [p, ec] =
+                std::from_chars(&_sanitizedJson[expStart], &_sanitizedJson[expEnd], exp, 10);
+            ec != std::errc{}) {
+            return false;
+        }
+    }
+    // Numbered Comments below come from the EcmaScript 5 language specification
+    // section 9.8.1 : ToString Applied to the Number Type
+    // http://es5.github.com/#x9.8.1
+
+    // 5. let n, k, and s be integers such that k >= 1, 10k-1 <= s < 10k, the
+    // Number value for s * 10n-k is m, and k is as small as possible.
+    // Note that k is the number of digits in the decimal representation of s,
+    // that s is not divisible by 10, and that the least significant digit of s
+    // is not necessarily uniquely determined by these criteria.
+    auto n = exp; // Exponent
+
+    // s, the string of decimal digits in the representation of m are stored in
+    // sanitizedJson.substring(intStart).
+    // k, the number of digits in s is computed later.
+
+    // Leave only the number representation on the output buffer after intStart.
+    // This leaves any sign on the digit per
+    // 3. If m is less than zero, return the String concatenation of the
+    //    String "-" and ToString(-m).
+    auto sawDecimal     = false;
+    auto zero           = true;
+    auto digitOutPos    = intStart;
+    auto nZeroesPending = 0;
+    for (auto i = intStart; i < fractionEnd; i += utf8::get_octet_count(_sanitizedJson[i])) {
+        ch = utf8::char_at(_sanitizedJson, i);
+        if (ch.size() == 1) {
+            auto &chf = ch.front();
+            if (chf == '.') {
+                sawDecimal = true;
+                if (zero) {
+                    nZeroesPending = 0;
+                }
+                continue;
+            }
+        } else {
+            continue;
+        }
+
+        auto digit = ch.front();
+        if ((!zero || digit != '0') && !sawDecimal) {
+            ++n;
+        }
+
+        if (digit == '0') {
+            // Keep track of runs of zeros so that we can take them into account
+            // if we later see a non-zero digit.
+            ++nZeroesPending;
+        } else {
+            if (zero) { // First non-zero digit.
+                // Discard runs of zeroes at the front of the integer part, but
+                // any after the decimal point factor into the exponent, n.
+                if (sawDecimal) {
+                    n -= nZeroesPending;
+                }
+                nZeroesPending = 0;
+            }
+            zero = false;
+            while (nZeroesPending != 0 || digit != 0) {
+                char vdigit;
+                if (nZeroesPending == 0) {
+                    vdigit = digit;
+                    digit  = (char)0;
+                } else {
+                    vdigit = '0';
+                    --nZeroesPending;
+                }
+
+                // TODO: limit s to 21 digits?
+                _sanitizedJson[digitOutPos++] = vdigit;
+            }
+        }
+    }
+    _sanitizedJson.resize(digitOutPos);
+    // Number of digits in decimal representation of s.
+    auto const k = static_cast<int>(digitOutPos - intStart);
+
+    // Now we have computed n, k, and s as defined above.  Time to add decimal
+    // points, exponents, and leading zeroes per the rest of the JS number
+    // formatting specification.
+
+    if (zero) { // There are no non-zero decimal digits.
+        // 2. If m is +0 or -0, return the String "0".
+        _sanitizedJson.resize(sanStart); // Elide any sign.
+        _sanitizedJson.push_back('0');
+        return true;
+    }
+
+    // 6. If k <= n <= 21, return the String consisting of the k digits of the
+    // decimal representation of s (in order, with no leading zeroes),
+    // followed by n-k occurrences of the character '0'.
+    if ((k <= n) && (n <= 21)) {
+        for (auto i = k; i < n; ++i) {
+            _sanitizedJson.push_back('0');
+        }
+
+        // 7. If 0 < n <= 21, return the String consisting of the most significant n
+        // digits of the decimal representation of s, followed by a decimal point
+        // '.', followed by the remaining k-n digits of the decimal representation
+        // of s.
+    } else if ((0 < n) && (n <= 21)) {
+        _sanitizedJson.insert(std::next(std::cbegin(_sanitizedJson), intStart + n), '.');
+
+        // 8. If -6 < n <= 0, return the String consisting of the character '0',
+        // followed by a decimal point '.', followed by -n occurrences of the
+        // character '0', followed by the k digits of the decimal representation of
+        // s.
+    } else if (-6 < n && n <= 0) {
+        auto tmp = std::string_view{"0.000000"}.substr(0, 2 - n);
+        _sanitizedJson.insert(intStart, tmp.data(), tmp.size());
+    } else {
+
+        // 9. Otherwise, if k = 1, return the String consisting of the single
+        // digit of s, followed by lowercase character 'e', followed by a plus
+        // sign '+' or minus sign '-' according to whether n-1 is positive or
+        // negative, followed by the decimal representation of the integer
+        // abs(n-1) (with no leading zeros).
+        if (k == 1) {
+            // Sole digit already on sanitizedJson.
+
+            // 10. Return the String consisting of the most significant digit of the
+            // decimal representation of s, followed by a decimal point '.', followed
+            // by the remaining k-1 digits of the decimal representation of s,
+            // followed by the lowercase character 'e', followed by a plus sign '+'
+            // or minus sign '-' according to whether n-1 is positive or negative,
+            // followed by the decimal representation of the integer abs(n-1) (with
+            // no leading zeros).
+        } else {
+            _sanitizedJson.insert(std::next(std::cbegin(_sanitizedJson), intStart + 1), '.');
+        }
+        auto const nLess1 = n - 1;
+        _sanitizedJson.push_back('e');
+        _sanitizedJson.push_back((nLess1 < 0) ? '-' : '+');
+        _sanitizedJson.append(std::to_string(std::abs(nLess1)));
+    }
+    return true;
 }
 
 bool JsonSanitizer::isKeyword(size_t start, size_t end) const
@@ -923,6 +1142,7 @@ bool JsonSanitizer::isKeyword(size_t start, size_t end) const
         pos = _jsonish.find("null", start, n);
         return pos != std::string_view::npos;
     }
+    return false;
 }
 
 bool JsonSanitizer::isOctAt(size_t i) const
@@ -974,7 +1194,7 @@ bool JsonSanitizer::isJsonSpecialChar(size_t i) const
 // clang-format off
 void JsonSanitizer::appendHex(int n, int nDigits)
 {
-    for (unsigned int i = 0, x = static_cast<unsigned int>(n); i<nDigits; ++i, x >> 4) {
+    for (unsigned int i = 0, x = static_cast<unsigned int>(n); i<static_cast<unsigned int>(nDigits); ++i, x >> 4) {
         auto dig = static_cast<char>(x & 0xf);
         _sanitizedJson.push_back(dig +
                                  (dig < static_cast<char>(10) ? '0' : static_cast<char>('a' - 10)));
@@ -995,6 +1215,7 @@ size_t JsonSanitizer::endOfDigitRun(size_t start, size_t limit) const
             return end;
         }
     }
+    return limit;
 }
 
 } // namespace com::google::json

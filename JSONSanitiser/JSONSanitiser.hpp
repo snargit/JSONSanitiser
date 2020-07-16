@@ -138,6 +138,9 @@ private:
             case State::AFTER_VALUE:
                 return "AFTER_VALUE";
                 break;
+            default:
+                return "UNKNOWN";
+                break;
         }
     }
 
