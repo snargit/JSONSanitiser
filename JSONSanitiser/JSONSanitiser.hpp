@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <variant>
 #include <vector>
 
 namespace com::google::json {
@@ -34,13 +36,13 @@ public:
 
 class JSONSANITISER_EXPORT JsonSanitizer final
 {
-    std::string_view  _jsonish;
-    int               _maximumNestingDepth           = MAXIMUM_NESTING_DEPTH;
-    bool              SUPER_VERBOSE_AND_SLOW_LOGGING = false;
-    std::string       _sanitizedJson;
-    size_t            _bracketDepth = 0;
-    size_t            _cleaned      = 0;
-    std::vector<bool> _isMap;
+    std::string_view    _jsonish;
+    int                 _maximumNestingDepth           = MAXIMUM_NESTING_DEPTH;
+    bool                SUPER_VERBOSE_AND_SLOW_LOGGING = false;
+    mutable std::string _sanitizedJson;
+    size_t              _bracketDepth = 0;
+    size_t              _cleaned      = 0;
+    std::vector<bool>   _isMap;
 
 public:
     static inline constexpr int DEFAULT_NESTING_DEPTH = 64;
@@ -65,23 +67,23 @@ public:
         return _maximumNestingDepth;
     }
 
-    static std::string_view sanitize(std::string_view jsonish, bool log = false)
+    static std::variant<std::string_view, std::string> sanitize(std::string_view jsonish,
+                                                                bool             log = false)
     {
         return sanitize(jsonish, DEFAULT_NESTING_DEPTH, log);
     }
 
-    static std::string_view sanitize(std::string_view jsonish,
-                                     int              maximumNestingDepth,
-                                     bool             log = false)
+    static std::variant<std::string_view, std::string> sanitize(std::string_view jsonish,
+                                                                int  maximumNestingDepth,
+                                                                bool log = false)
     {
         JsonSanitizer s{jsonish, maximumNestingDepth, log};
         s.sanitize();
         return s.toString();
     }
 
-    void sanitize();
-
-    std::string_view toString() const noexcept;
+    void                                        sanitize();
+    std::variant<std::string_view, std::string> toString() const noexcept;
 
 private:
     enum class State

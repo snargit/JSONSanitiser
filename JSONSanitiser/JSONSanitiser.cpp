@@ -415,9 +415,9 @@ void JsonSanitizer::sanitize()
     }
 }
 
-std::string_view JsonSanitizer::toString() const noexcept
+std::variant<std::string_view, std::string> JsonSanitizer::toString() const noexcept
 {
-    return !_sanitizedJson.empty() ? std::string_view{_sanitizedJson} : _jsonish;
+    return !_sanitizedJson.empty() ? std::move(_sanitizedJson) : _jsonish;
 }
 
 ///
