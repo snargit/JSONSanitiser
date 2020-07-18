@@ -141,9 +141,8 @@ void JsonSanitizer::sanitize()
         return;
     }
 
-    // n is count of code points, not bytes
     auto const n = _jsonish.length();
-    for (size_t i = 0u; i < n; ++i) {
+    for (size_t i = 0u; i < n; i+=utf8::get_octet_count(_jsonish[i])) {
 
         try {
             auto ch = utf8::char_at(_jsonish, i);
@@ -167,7 +166,11 @@ void JsonSanitizer::sanitize()
                         state       = requireValueState(i, state, true);
                         auto strEnd = endOfQuotedString(_jsonish, i);
                         sanitizeString(i, strEnd);
-                        i = strEnd - i;
+                        auto fakeEnd = &_jsonish.front() + strEnd;
+                        i = strEnd - utf8::backup_one_character_octect_count(reinterpret_cast<
+                                                                        unsigned char const *>(
+                                                                        fakeEnd),
+                                                                    strEnd - i);
                     } break;
                     case '(':
                     case ')':
@@ -740,16 +743,25 @@ void JsonSanitizer::replace(size_t start, size_t end, char s)
     _sanitizedJson.push_back(s);
 }
 
+
+/// The position past the last character within the quotes of the quoted
+/// string starting at {\code s[start]}. Does not assume that the
+/// quoted string is properly closed.
 size_t JsonSanitizer::endOfQuotedString(std::string_view s, size_t start) const
 {
     auto quote = utf8::char_at(s, start);
     auto i     = s.find(quote, start + quote.length());
     while (i != std::string_view::npos) {
-        auto slashRunStart = i;
+        // If there are an even number of preceding backslashes then this is
+        // the end of the string.
+        auto slashRunStart =
+            i - utf8::backup_one_character_octect_count(reinterpret_cast<unsigned char const *>(
+                                                            &s[i]),
+                                                        i - start);
         while ((slashRunStart > start) && (utf8::char_at(s, slashRunStart) == "\\")) {
-            --slashRunStart;
+            slashRunStart -= 1;
         }
-        if (((i - slashRunStart) & 1) == 0) {
+        if (((i - slashRunStart - 1) & 1) == 0) {
             return i + quote.length();
         }
         i = s.find(quote, i + quote.length());
@@ -764,7 +776,18 @@ void JsonSanitizer::elideTrailingComma(size_t closeBracketPos)
     // 2. jsonish.substring(cleaned, closeBracketPos)
     // We walk over whitespace characters in both right-to-left looking for a
     // comma.
-    for (auto i = closeBracketPos; i >= _cleaned;
+    size_t nBackup = 0;
+    if (closeBracketPos < _jsonish.length()) {
+        nBackup = utf8::backup_one_character_octect_count(reinterpret_cast<unsigned char const *>(
+                                                              &_jsonish[closeBracketPos]),
+                                                          closeBracketPos - _cleaned);
+    } else {
+        auto fakeStart = &_jsonish.back() + 1;
+        nBackup = utf8::backup_one_character_octect_count(reinterpret_cast<unsigned char const *>(
+                                                              fakeStart),
+                                                          closeBracketPos - _cleaned);
+    }
+    for (auto i = closeBracketPos - nBackup; i >= _cleaned;
          i -= utf8::backup_one_character_octect_count(reinterpret_cast<unsigned char const *>(
                                                           &_jsonish[i]),
                                                       i - _cleaned)) {
@@ -785,7 +808,12 @@ void JsonSanitizer::elideTrailingComma(size_t closeBracketPos)
             }
         }
     }
-    for (intptr_t i = _sanitizedJson.length(); i >= 0;
+    auto const sntjslngth = _sanitizedJson.length();
+    auto       fakeStart  = &_sanitizedJson.back() + 1;
+    nBackup =
+        utf8::backup_one_character_octect_count(reinterpret_cast<unsigned char const *>(fakeStart),
+                                                sntjslngth);
+    for (intptr_t i = sntjslngth - nBackup; i >= 0;
          i -= utf8::backup_one_character_octect_count(reinterpret_cast<unsigned char const *>(
                                                           &_sanitizedJson[static_cast<size_t>(i)]),
                                                       _sanitizedJson.length() -

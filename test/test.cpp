@@ -88,11 +88,11 @@ TEST(SanitizerTests, TestScript3)
     ASSERT_EQ(asString(JsonSanitizer::sanitize("\"</ScRIpT\"")), "\"\\u003c/ScRIpT\"");
 }
 
-// \u0130 is a Turkish dotted upper-case 'I' so the lower case version of
+// \u0130 (\xc4\xb0) is a Turkish dotted upper-case 'I' so the lower case version of
 // the tag name is "script".
 TEST(SanitizerTests, TestScriptTurkishDottedUpperCase)
 {
-    ASSERT_EQ(asString(JsonSanitizer::sanitize("\"</ScR\u0130pT\"")), "\"\\u003c/ScR\u0130pT\"");
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("\"</ScR\xc4\xb0pT\"")), "\"\\u003c/ScR\xc4\xb0pT\"");
 }
 
 TEST(SanitizerTests, TestHelloHtmlB)
@@ -105,7 +105,7 @@ TEST(SanitizerTests, TestHelloHtmlS)
     ASSERT_EQ(asString(JsonSanitizer::sanitize("\"<s>Hello</s>\"")), "\"<s>Hello</s>\"");
 }
 
-TEST(SanitizerTests, TestNestedQuareBrackets)
+TEST(SanitizerTests, TestNestedSquareBrackets)
 {
     ASSERT_EQ(asString(JsonSanitizer::sanitize("'<[[]]>'")), "\"<[[\\u005d]>\"");
 }
@@ -115,171 +115,211 @@ TEST(SanitizerTests, TestDoubleCloseSquareBracket)
     ASSERT_EQ(asString(JsonSanitizer::sanitize("']]>'")), "\"\\u005d]>\"");
 }
 
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("[[0]]", "[[0]]>");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("[1,-1,0.0,-0.5,1e2]", "[1,-1,0.0,-0.5,1e2,");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("[1,2,3]", "[1,2,3,]");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("[1,null,3]", "[1,,3,]");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("[1 ,2 ,3]", "[1 2 3]");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("{ \"foo\": \"bar\" }");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("{ \"foo\": \"bar\" }", "{ \"foo\": \"bar\", }");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("{\"foo\":\"bar\"}", "{\"foo\",\"bar\"}");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("{ \"foo\": \"bar\" }", "{ foo: \"bar\" }");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("{ \"foo\": \"bar\"}", "{ foo: 'bar");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("{ \"foo\": [\"bar\"]}", "{ foo: ['bar");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("false", "// comment\nfalse");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("false", "false// comment");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("false", "false// comment\n");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("false", "false/* comment */");
-//}
-//
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("false", "false/* comment *");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("false", "false/* comment ");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("false", "/*/true**/false");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("1");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("-1");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("1.0");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("-1.0");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("1.05");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("427.0953333");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("6.0221412927e+23");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("6.0221412927e23");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("6.0221412927e0", "6.0221412927e");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("6.0221412927e-0", "6.0221412927e-");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("6.0221412927e+0", "6.0221412927e+");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("1.660538920287695E-24");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("-6.02e-23");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("1.0", "1.");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("0.5", ".5");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("-0.5", "-.5");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("0.5", "+.5");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("0.5e2", "+.5e2");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("1.5e+2", "+1.5e+2");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("0.5e-2", "+.5e-2");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("{\"0\":0}", "{0:0}");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("{\"0\":0}", "{-0:0}");
-//}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("{\"0\":0}", "{+0:0}");
-//}
+TEST(SanitizerTests, TestDoubleSquareBracketWithZero)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("[[0]]>")), "[[0]]");
+}
+
+TEST(SanitizerTests, TestArrayTrailingCommaUnclosed)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("[1,-1,0.0,-0.5,1e2,")), "[1,-1,0.0,-0.5,1e2]");
+}
+
+TEST(SanitizerTests, TestNumberTrailingCommaArray)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("[1,2,3,]")), "[1,2,3]");
+}
+
+TEST(SanitizerTests, TestArrayRepeatedAndTrailingComma)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("[1,,3,]")), "[1,null,3]");
+}
+
+TEST(SanitizerTests, TestArrayNoElementSeparator)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("[1 2 3]")), "[1 ,2 ,3]");
+}
+
+TEST(SanitizerTests, TestDictionary)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("{ \"foo\": \"bar\" }")), "{ \"foo\": \"bar\" }");
+}
+
+TEST(SanitizerTests, TestDictionaryTrailingComma)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("{ \"foo\": \"bar\", }")), "{ \"foo\": \"bar\" }");
+}
+
+TEST(SanitizerTests, TestDictionaryCommaSeparated)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("{\"foo\",\"bar\"}")), "{\"foo\":\"bar\"}");
+}
+
+TEST(SanitizerTests, TestDictionaryUnquoted)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("{ foo: \"bar\" }")), "{ \"foo\": \"bar\" }");
+}
+
+TEST(SanitizerTests, TestDictionarySingleQuoteNotClosed)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("{ foo: 'bar")), "{ \"foo\": \"bar\"}");
+}
+
+TEST(SanitizerTests, TestDictionaryUnboundedArray)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("{ foo: ['bar")), "{ \"foo\": [\"bar\"]}");
+}
+
+TEST(SanitizerTests, TestNewlineLeadingComment)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("// comment\nfalse")), "false");
+}
+
+TEST(SanitizerTests, TestTrailingComment)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("false// comment")), "false");
+}
+
+TEST(SanitizerTests, TestTrailingCommentNewline)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("false// comment\n")), "false");
+}
+
+TEST(SanitizerTests, TestCStyleTrailingComment)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("false/* comment */")), "false");
+}
+
+TEST(SanitizerTests, TestCStyleTrailingCommentUnterminated)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("false/* comment *")), "false");
+}
+
+TEST(SanitizerTests, TestCStyleTrailingCommentUnterminated2)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("false/* comment ")), "false");
+}
+
+TEST(SanitizerTests, TestCStyleCommentMultiAsterix)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("/*/true**/false")), "false");
+}
+
+TEST(SanitizerTests, TestPositiveInteger)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("1")), "1");
+}
+
+TEST(SanitizerTests, TestNegativeInteger)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("-1")), "-1");
+}
+
+TEST(SanitizerTests, TestPositiveFloatingPoint)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("1.0")), "1.0");
+}
+
+TEST(SanitizerTests, TestNegativeFloatingPoint)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("-1.0")), "-1.0");
+}
+
+TEST(SanitizerTests, TestPositiveFloatingPoint2DP)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("1.05")), "1.05");
+}
+
+TEST(SanitizerTests, TestPositiveFloatingPointMultiDP)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("427.0953333")), "427.0953333");
+}
+
+TEST(SanitizerTests, TestExplictPositiveExponent)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("6.0221412927e+23")), "6.0221412927e+23");
+}
+
+TEST(SanitizerTests, TestPositiveExponent)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("6.0221412927e23")), "6.0221412927e23");
+}
+
+TEST(SanitizerTests, TestUnterminatedExponent)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("6.0221412927e")), "6.0221412927e0");
+}
+
+TEST(SanitizerTests, TestUnterminatedExponent2)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("6.0221412927e-")), "6.0221412927e-0");
+}
+
+TEST(SanitizerTests, TestUnterminatedExponent3)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("6.0221412927e+")), "6.0221412927e+0");
+}
+
+TEST(SanitizerTests, TestPositiveLargeNegativeExponent)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("1.660538920287695E-24")), "1.660538920287695E-24");
+}
+
+TEST(SanitizerTests, TestNegativeLargeNegativeExponent)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("-6.02e-23")), "-6.02e-23");
+}
+
+TEST(SanitizerTests, TestPadTrailingPositiveFloatingPoint)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("1.")), "1.0");
+}
+
+TEST(SanitizerTests, TestPadLeadingPositiveFloatingPoint)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize(".5")), "0.5");
+}
+
+TEST(SanitizerTests, TestPadLeadingNegativeFloatingPoint)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("-.5")), "-0.5");
+}
+
+TEST(SanitizerTests, TestRemoveSignAndPadLeadingFloatingPoint)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("+.5")), "0.5");
+}
+
+TEST(SanitizerTests, TestRemoveSignAndPadLeadingExponent)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("+.5e2")), "0.5e2");
+}
+
+TEST(SanitizerTests, TestRemoveSignLeadingExponent)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("+1.5e+2")), "1.5e+2");
+}
+
+TEST(SanitizerTests, TestRemoveSignAndPadLeadingNegativeExponent)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("+.5e-2")), "0.5e-2");
+}
+
+TEST(SanitizerTests, TestUnescapedNumericKey)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("{0:0}")), "{\"0\":0}");
+}
+
+TEST(SanitizerTests, TestUnescapedNegativeNumericKey)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("{-0:0}")), "{\"0\":0}");
+}
+
+TEST(SanitizerTests, TestUnescapedPositiveNumericKey)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("{+0:0}")), "{\"0\":0}");
+}
+
 //TEST(SanitizerTests, TestFooSingleQuote)
 //{
 //    ASSERT_EQ(asString(JsonSanitizer::sanitize("{\"1\":0}", "{1.0:0}");
@@ -348,10 +388,12 @@ TEST(SanitizerTests, TestDoubleCloseSquareBracket)
 //{
 //    ASSERT_EQ(asString(JsonSanitizer::sanitize("{\"1.234e-102\":0}", "{.01234e-100:0}");
 //}
-//TEST(SanitizerTests, TestFooSingleQuote)
-//{
-//    ASSERT_EQ(asString(JsonSanitizer::sanitize("{}");
-//}
+
+TEST(SanitizerTests, TestEmptyObject)
+{
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("{}")), "{}");
+}
+
 //// Remove grouping parentheses.
 //TEST(SanitizerTests, TestFooSingleQuote)
 //{
