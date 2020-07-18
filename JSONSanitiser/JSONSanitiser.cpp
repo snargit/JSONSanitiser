@@ -417,8 +417,10 @@ void JsonSanitizer::sanitize()
 
 std::variant<std::string_view, std::string> JsonSanitizer::toString() const noexcept
 {
-    return !_sanitizedJson.empty() ? std::move(_sanitizedJson) : _jsonish;
-}
+    return !_sanitizedJson.empty() ?
+               std::variant<std::string_view, std::string>{std::in_place_index<1>, _sanitizedJson} :
+               std::variant<std::string_view, std::string>{std::in_place_index<0>, _jsonish};
+    }
 
 ///
 /// Ensures that the output corresponding to {\code jsonish[start:end]} is a
@@ -449,11 +451,17 @@ void JsonSanitizer::sanitizeString(size_t start, size_t end)
             replace(i, i + ch.length(), "\\u2029");
         } else if (ch.length() == 1) {
             auto &chf = ch.front();
+            // Escape all control code-points and isolated surrogates which are
+            // not embeddable in XML.
+            // http://www.w3.org/TR/xml/#charsets says
+            //     Char ::= #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD]
+            //            | [#x10000-#x10FFFF]
+            // Note - we deal with '\n' and '\r' separately
             if (chf < '\x20') {
-                if ((chf == '\x09') || (chf == '\x0a') || (chf == '\x0d')) {
+                if ((chf == '\x09')) {
                     ++i;
                     continue;
-                } else {
+                } else if (!((chf == '\x0a') || (chf == '\x0d'))) {
                     replace(i, i + 1, "\\u");
                     auto uch = static_cast<uint32_t>(chf);
                     for (auto j = 4; --j >= 0;) {
@@ -492,9 +500,9 @@ void JsonSanitizer::sanitizeString(size_t start, size_t end)
                         if (closed) {
                             if (ch == "\'") {
                                 replace(i, i + 1, "\"");
-                            } else if (ch == "\"") {
-                                insert(i, "\\");
                             }
+                        } else if (ch == "\"") {
+                                insert(i, "\\");
                         }
                     }
                     break;

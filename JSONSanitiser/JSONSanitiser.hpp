@@ -36,13 +36,13 @@ public:
 
 class JSONSANITISER_EXPORT JsonSanitizer final
 {
-    std::string_view    _jsonish;
-    int                 _maximumNestingDepth           = MAXIMUM_NESTING_DEPTH;
-    bool                SUPER_VERBOSE_AND_SLOW_LOGGING = false;
-    mutable std::string _sanitizedJson;
-    size_t              _bracketDepth = 0;
-    size_t              _cleaned      = 0;
-    std::vector<bool>   _isMap;
+    std::string_view  _jsonish;
+    int               _maximumNestingDepth           = MAXIMUM_NESTING_DEPTH;
+    bool              SUPER_VERBOSE_AND_SLOW_LOGGING = false;
+    std::string       _sanitizedJson;
+    size_t            _bracketDepth = 0;
+    size_t            _cleaned      = 0;
+    std::vector<bool> _isMap;
 
 public:
     static inline constexpr int DEFAULT_NESTING_DEPTH = 64;
