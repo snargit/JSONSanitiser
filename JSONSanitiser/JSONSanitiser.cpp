@@ -142,7 +142,7 @@ void JsonSanitizer::sanitize()
     }
 
     auto const n = _jsonish.length();
-    for (size_t i = 0u; i < n; i+=utf8::get_octet_count(_jsonish[i])) {
+    for (size_t i = 0u; i < n; i += utf8::get_octet_count(_jsonish[i])) {
 
         try {
             auto ch = utf8::char_at(_jsonish, i);
@@ -167,7 +167,8 @@ void JsonSanitizer::sanitize()
                         auto strEnd = endOfQuotedString(_jsonish, i);
                         sanitizeString(i, strEnd);
                         auto fakeEnd = &_jsonish.front() + strEnd;
-                        i = strEnd - utf8::backup_one_character_octect_count(reinterpret_cast<
+                        i            = strEnd -
+                            utf8::backup_one_character_octect_count(reinterpret_cast<
                                                                         unsigned char const *>(
                                                                         fakeEnd),
                                                                     strEnd - i);
@@ -183,7 +184,7 @@ void JsonSanitizer::sanitize()
                         if (_isMap.empty()) {
                             _isMap.resize(_maximumNestingDepth, false);
                         }
-                        auto map              = ch.front() == '{';
+                        auto map                 = ch.front() == '{';
                         _isMap.at(_bracketDepth) = map;
                         ++_bracketDepth;
                         state = map ? State::START_MAP : State::START_ARRAY;
@@ -425,7 +426,7 @@ std::variant<std::string_view, std::string> JsonSanitizer::toString() const noex
     return !_sanitizedJson.empty() ?
                std::variant<std::string_view, std::string>{std::in_place_index<1>, _sanitizedJson} :
                std::variant<std::string_view, std::string>{std::in_place_index<0>, _jsonish};
-    }
+}
 
 ///
 /// Ensures that the output corresponding to {\code jsonish[start:end]} is a
@@ -507,7 +508,7 @@ void JsonSanitizer::sanitizeString(size_t start, size_t end)
                                 replace(i, i + 1, "\"");
                             }
                         } else if (ch == "\"") {
-                                insert(i, "\\");
+                            insert(i, "\\");
                         }
                     }
                     break;
@@ -744,9 +745,9 @@ size_t JsonSanitizer::endOfQuotedString(std::string_view s, size_t start) const
         // If there are an even number of preceding backslashes then this is
         // the end of the string.
         auto slashRunStart =
-            i - utf8::backup_one_character_octect_count(reinterpret_cast<unsigned char const *>(
-                                                            &s[i]),
-                                                        i - start);
+            i -
+            utf8::backup_one_character_octect_count(reinterpret_cast<unsigned char const *>(&s[i]),
+                                                    i - start);
         auto nSlashes = 0;
         while ((slashRunStart > start) && (utf8::char_at(s, slashRunStart) == "\\")) {
             ++nSlashes;
@@ -859,7 +860,7 @@ void JsonSanitizer::normalizeNumber(size_t start, size_t end)
         pos == intEnd) { // No empty integer parts allowed in JSON.
         insert(pos, '0');
     } else if ((ch.length() == 1) && ('0' == ch.front())) {
-        auto reencoded = false;
+        auto    reencoded = false;
         int64_t value     = 0;
         if (((intEnd - pos) == 1) && (intEnd < end)) {
             if (auto tch = utf8::char_at(_jsonish, intEnd);
@@ -1260,16 +1261,15 @@ bool JsonSanitizer::isJsonSpecialChar(size_t i) const
     return false;
 }
 
-// clang-format off
 void JsonSanitizer::appendHex(int n, int nDigits)
 {
-    for (unsigned int i = 0, x = static_cast<unsigned int>(n); i<static_cast<unsigned int>(nDigits); ++i, x >> 4) {
+    for (unsigned int i = 0, x = static_cast<unsigned int>(n);
+         i < static_cast<unsigned int>(nDigits); ++i, x >> 4) {
         auto dig = static_cast<char>(x & 0xf);
         _sanitizedJson.push_back(dig +
                                  (dig < static_cast<char>(10) ? '0' : static_cast<char>('a' - 10)));
     }
 }
-// clang-format on
 
 size_t JsonSanitizer::endOfDigitRun(size_t start, size_t limit) const
 {
