@@ -184,7 +184,7 @@ void JsonSanitizer::sanitize()
                             _isMap.resize(_maximumNestingDepth, false);
                         }
                         auto map              = ch.front() == '{';
-                        _isMap[_bracketDepth] = map;
+                        _isMap.at(_bracketDepth) = map;
                         ++_bracketDepth;
                         state = map ? State::START_MAP : State::START_ARRAY;
                     } break;
@@ -372,6 +372,8 @@ void JsonSanitizer::sanitize()
                         i = runEnd - 1;
                         break;
                 }
+            } else {
+                elide(i, i + ch.length());
             }
             if (abortLoop) {
                 break;
@@ -632,26 +634,13 @@ void JsonSanitizer::sanitizeString(size_t start, size_t end)
             }
         } else {
             auto const u32ch = utf8::to_utf32(ch);
-            if ((u32ch >= 0xD800) && (u32ch < 0xE000)) {
-                // This must be a lone surrogate - otherwise it would have been
-                // combined with another to make a valid UTF8 character
+            if (((u32ch >= 0xD800) && (u32ch < 0xE000)) || (u32ch == 0xFFFE) || (u32ch == 0xFFFF)) {
+                // This must be a lone surrogate or BOM - otherwise it would have been
+                // combined with another surrogate to make a valid UTF8 character
                 replace(i, i + ch.length(), "\\u");
                 auto u16ch = static_cast<uint16_t>(u32ch); // Safe
                 for (int j = 4; --j >= 0;) {
                     _sanitizedJson.push_back(HEX_DIGITS[(u16ch >> (j << 2)) & 0xf]);
-                }
-            } else if (u32ch >= 0xFFFE) {
-                // These have to be split into surrogate pairs
-                uint32_t u32chprime = u32ch - 0x10000;
-                uint16_t w1 = 0xD800u + static_cast<uint16_t>((u32chprime & 0x000FFC00) >> 10);
-                uint16_t w2 = 0xDC00u + static_cast<uint16_t>(u32chprime & 0x000003FF);
-                replace(i, i + ch.length(), "\\u");
-                for (int j = 4; --j >= 0;) {
-                    _sanitizedJson.push_back(HEX_DIGITS[(w1 >> (j << 2)) & 0xf]);
-                }
-                _sanitizedJson.append("\\u");
-                for (int j = 4; --j >= 0;) {
-                    _sanitizedJson.push_back(HEX_DIGITS[(w2 >> (j << 2)) & 0xf]);
                 }
             }
         }
@@ -758,10 +747,12 @@ size_t JsonSanitizer::endOfQuotedString(std::string_view s, size_t start) const
             i - utf8::backup_one_character_octect_count(reinterpret_cast<unsigned char const *>(
                                                             &s[i]),
                                                         i - start);
+        auto nSlashes = 0;
         while ((slashRunStart > start) && (utf8::char_at(s, slashRunStart) == "\\")) {
+            ++nSlashes;
             slashRunStart -= 1;
         }
-        if (((i - slashRunStart - 1) & 1) == 0) {
+        if ((nSlashes & 1) == 0) {
             return i + quote.length();
         }
         i = s.find(quote, i + quote.length());
@@ -869,30 +860,31 @@ void JsonSanitizer::normalizeNumber(size_t start, size_t end)
         insert(pos, '0');
     } else if ((ch.length() == 1) && ('0' == ch.front())) {
         auto reencoded = false;
-        long value     = 0;
-        if (auto tch = utf8::char_at(_jsonish, intEnd);
-            ((intEnd - pos) == 1) && (intEnd < end) && (tch.length() == 1) &&
-            ('x' == (tch.front() | 32))) { // Recode hex.
-            for (auto tintEnd = intEnd + 1; tintEnd < end;
-                 tintEnd += utf8::get_octet_count(_jsonish[tintEnd])) {
-                auto nch = utf8::char_at(_jsonish, tintEnd);
-                if (nch.length() == 1) {
-                    auto nchf   = nch.front();
-                    auto digVal = 0;
-                    if (('0' <= nchf) && (nchf <= '9')) {
-                        digVal = nchf - '0';
-                    } else {
-                        nchf |= 32;
-                        if (('a' <= nchf) && (nchf <= 'f')) {
-                            digVal = nchf - ('a' - 10);
+        int64_t value     = 0;
+        if (((intEnd - pos) == 1) && (intEnd < end)) {
+            if (auto tch = utf8::char_at(_jsonish, intEnd);
+                (tch.length() == 1) && ('x' == (tch.front() | 32))) { // Recode hex.
+                for (auto tintEnd = intEnd + 1; tintEnd < end;
+                     tintEnd += utf8::get_octet_count(_jsonish[tintEnd])) {
+                    auto nch = utf8::char_at(_jsonish, tintEnd);
+                    if (nch.length() == 1) {
+                        auto nchf   = nch.front();
+                        auto digVal = 0;
+                        if (('0' <= nchf) && (nchf <= '9')) {
+                            digVal = nchf - '0';
                         } else {
-                            break;
+                            nchf |= 32;
+                            if (('a' <= nchf) && (nchf <= 'f')) {
+                                digVal = nchf - ('a' - 10);
+                            } else {
+                                break;
+                            }
                         }
+                        value = (value << 4) | digVal;
                     }
-                    value = (value << 4) | digVal;
                 }
+                reencoded = true;
             }
-            reencoded = true;
         } else if (intEnd - pos > 1) { // Recode octal.
             for (auto i = pos; i < intEnd; i += utf8::get_octet_count(_jsonish[i])) {
                 int digVal = utf8::char_at(_jsonish, i).front() - '0';
