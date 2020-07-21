@@ -464,7 +464,8 @@ TEST(SanitizerTests, TestInvalidOutsideString)
     std::string testData{"\xef\xbf\xaf"};
     testData.push_back('\x00');
     testData.append("42\x08\xed\xa0\x80\xef\xbf\xbf\xed\xb0\x80");
-    ASSERT_EQ(asString(JsonSanitizer::sanitize(testData)), "42");
+    std::string expected{"\"\xef\xbf\xaf\""};
+    ASSERT_EQ(asString(JsonSanitizer::sanitize(testData)), expected);
 }
 
 TEST(SanitizerTests, TestInvalidOutsideString2)
@@ -473,7 +474,26 @@ TEST(SanitizerTests, TestInvalidOutsideString2)
     std::string testData{"\xef\xbf\xaf"};
     testData.push_back('\x00');
     testData.append("\x08\xed\xa0\x80\xef\xbf\xbf\xed\xb0\x80");
+    ASSERT_EQ(asString(JsonSanitizer::sanitize(testData)), "\"\xef\xbf\xaf\"");
+}
+
+TEST(SanitizerTests, TestInvalidOutsideString3)
+{
+    // \ufffe\u0000\u0008\ud800\uffff\udc00
+    std::string testData{"\xef\xbf\xbe"};
+    testData.push_back('\x00');
+    testData.append("\x08\xed\xa0\x80\xef\xbf\xbf\xed\xb0\x80");
     ASSERT_EQ(asString(JsonSanitizer::sanitize(testData)), "null");
+}
+
+TEST(SanitizerTests, TestInvalidOutsideString4)
+{
+    // \ufffe\u000042\u0008\ud800\uffff\udc00
+    std::string testData{"\xef\xbf\xbe"};
+    testData.push_back('\x00');
+    testData.append("42\x08\xed\xa0\x80\xef\xbf\xbf\xed\xb0\x80");
+    std::string expected{"42"};
+    ASSERT_EQ(asString(JsonSanitizer::sanitize(testData)), expected);
 }
 
 TEST(SanitizerTests, TestArrayCommaSeparatedEmptyElments)
@@ -530,14 +550,29 @@ TEST(SanitizerTests, TestOddOctalRecode)
 TEST(TestIssue3, TestIndexOutOfBounds)
 {
     // \u00E4
-    ASSERT_EQ(asString(JsonSanitizer::sanitize("[{{},\xc3\xa4")), "[{\"\":{}}]");
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("[{{},\xc3\xa4")), "[{\"\":{},\"\xC3\xA4\":null}]");
+}
+
+TEST(TestIssue3, TestIndexOutOfBoundsAscii)
+{
+    // \u00E4
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("[{{},hello")), "[{\"\":{},\"hello\":null}]");
 }
 
 TEST(TestIssue3, TestIndexOutOfBounds2)
 {
     // \u00E4\u00E4},\u00E4
-    ASSERT_EQ(asString(JsonSanitizer::sanitize("[{{\xc3\xa4\xc3\xa4},\xc3\xa4")), "[{\"\":{}}]");
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("[{{\xc3\xa4\xc3\xa4},\xc3\xa4")),
+              "[{\"\":{\"\xC3\xA4\xC3\xA4\":null},\"\xC3\xA4\":null}]");
 }
+
+TEST(TestIssue3, TestIndexOutOfBounds2Ascii)
+{
+    // \u00E4\u00E4},\u00E4
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("[{{hello},world")),
+              "[{\"\":{\"hello\":null},\"world\":null}]");
+}
+
 
 // Make sure that bare words are quoted.
 TEST(TestIssue4, TestDevQuoted)
@@ -605,11 +640,19 @@ TEST(TestMaximumNestingLevel, TestMaximumNestingLevelAssignment)
     EXPECT_EQ(JsonSanitizer::MAXIMUM_NESTING_DEPTH, JS2.getMaximumNestingDepth());
 }
 
- TEST(TestFuzzer, TestClosedArray)
+TEST(TestFuzzer, TestClosedArray)
 {
     // Discovered by fuzzer with seed -Dfuzz.seed=df3b4778ce54d00a
     // \ufeff-01742461140214282
     ASSERT_EQ(asString(JsonSanitizer::sanitize("\xef\xbb\xbf-01742461140214282]")),
+              "\"\xef\xbb\xbf-01742461140214282\"");
+}
+
+TEST(TestFuzzer, TestClosedArray2)
+{
+    // Discovered by fuzzer with seed -Dfuzz.seed=df3b4778ce54d00a
+    // \ufffe-01742461140214282
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("\xef\xbf\xbe-01742461140214282]")),
               "-68348121520322");
 }
 
@@ -640,7 +683,7 @@ TEST(TestHtmlParserStateChanges, TestScript3)
 }
 TEST(TestHtmlParserStateChanges, TestScript4)
 {
-ASSERT_EQ(asString(JsonSanitizer::sanitize("<script")), "\"script\"");
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("<script")), "\"script\"");
 }
 TEST(TestHtmlParserStateChanges, TestXMLComment)
 {
@@ -648,7 +691,7 @@ TEST(TestHtmlParserStateChanges, TestXMLComment)
 }
 TEST(TestHtmlParserStateChanges, TestXMLComment2)
 {
-ASSERT_EQ(asString(JsonSanitizer::sanitize("<!--")), "-0");
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("<!--")), "-0");
 }
 TEST(TestHtmlParserStateChanges, TestXMLComment3)
 {
@@ -656,9 +699,10 @@ TEST(TestHtmlParserStateChanges, TestXMLComment3)
 }
 TEST(TestHtmlParserStateChanges, TestXMLComment4)
 {
-ASSERT_EQ(asString(JsonSanitizer::sanitize("-->")), "-0");
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("-->")), "-0");
 }
 TEST(TestHtmlParserStateChanges, TestScriptXMLComment)
 {
-    ASSERT_EQ(asString(JsonSanitizer::sanitize("\"<!--<script>\"")), "\"\\u003c!--\\u003cscript>\"");
+    ASSERT_EQ(asString(JsonSanitizer::sanitize("\"<!--<script>\"")),
+              "\"\\u003c!--\\u003cscript>\"");
 }

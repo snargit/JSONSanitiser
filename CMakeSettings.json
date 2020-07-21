@@ -35,6 +35,16 @@
           "name": "GTEST_MAIN_LIBRARY",
           "value": "D:/googletest-release-1.10.0/out/install/x64-Debug/lib/gtest_maind.lib",
           "type": "FILEPATH"
+        },
+        {
+          "name": "Boost_DIR",
+          "value": "D:/Boost",
+          "type": "PATH"
+        },
+        {
+          "name": "boost_coroutine2_DIR",
+          "value": "D:/Boost",
+          "type": "PATH"
         }
       ]
     },

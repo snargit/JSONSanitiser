@@ -314,8 +314,20 @@ void JsonSanitizer::sanitize()
                         i = end - 1;
                     } break;
                     default:
+                        // Three kinds of other values can occur.
+                        // 1. Numbers
+                        // 2. Keyword values ("false", "null", "true")
+                        // 3. Unquoted JS property names as in the JS expression
+                        //      ({ foo: "bar"})
+                        //    which is equivalent to the JSON
+                        //      { "foo": "bar" }
+                        // 4. Cruft tokens like BOMs.
+
+                        // Look for a run of '.', [0-9], [a-zA-Z_$], [+-] which subsumes
+                        // all the above without including any JSON special characters
+                        // outside keyword and number.
                         auto runEnd = i;
-                        for (; runEnd < n; ++runEnd) {
+                        for (; runEnd < n; runEnd += utf8::get_octet_count(_jsonish[runEnd])) {
                             auto tch = utf8::char_at(_jsonish, runEnd);
                             if (tch.size() == 1) {
                                 auto &tchf = tch.front();
@@ -326,12 +338,19 @@ void JsonSanitizer::sanitize()
                                     (tchf == '$')) {
                                     continue;
                                 }
+                                break;
+                            } else {
+                                auto const u32ch = utf8::to_utf32(tch);
+                                if (((u32ch >= 0xD800) && (u32ch < 0xE000)) || (u32ch == 0xFFFE) ||
+                                    (u32ch == 0xFFFF)) {
+                                    break;
+                                }
+                                continue;
                             }
-                            break;
                         }
 
                         if (runEnd == i) {
-                            elide(i, i + 1);
+                            elide(i, i + utf8::get_octet_count(_jsonish[i]));
                             break;
                         }
 
@@ -384,11 +403,64 @@ void JsonSanitizer::sanitize()
                                 sanitizeString(i, runEnd);
                             }
                         }
-                        i = runEnd - 1;
+                        auto fakeRunEnd = _jsonish.data() + runEnd;
+                        i               = runEnd -
+                            utf8::backup_one_character_octect_count(reinterpret_cast<
+                                                                        unsigned char const *>(
+                                                                        fakeRunEnd),
+                                                                    runEnd - i);
                         break;
                 }
             } else {
-                elide(i, i + ch.length());
+                auto runEnd = i;
+                for (; runEnd < n; runEnd += utf8::get_octet_count(_jsonish[runEnd])) {
+                    auto tch = utf8::char_at(_jsonish, runEnd);
+                    if (tch.size() == 1) {
+                        auto &tchf = tch.front();
+                        if ((('a' <= tchf) && (tchf <= 'z')) || (('0' <= tchf) && (tchf <= '9')) ||
+                            (tchf == '+') || (tchf == '-') || (tchf == '.') ||
+                            (('A' <= tchf) && (tchf <= 'Z')) || (tchf == '_') || (tchf == '$')) {
+                            continue;
+                        }
+                        break;
+                    } else {
+                        auto const u32ch = utf8::to_utf32(tch);
+                        if (((u32ch >= 0xD800) && (u32ch < 0xE000)) || (u32ch == 0xFFFE) ||
+                            (u32ch == 0xFFFF)) {
+                            break;
+                        }
+                        continue;
+                    }
+                }
+
+                if (runEnd == i) {
+                    elide(i, i + utf8::get_octet_count(_jsonish[i]));
+                    //auto fakeRunEnd = _jsonish.data() + runEnd;
+                    //i = runEnd - utf8::backup_one_character_octect_count(reinterpret_cast<
+                    //                                                            unsigned char const *>(
+                    //                                                            fakeRunEnd),
+                    //                                                        runEnd - i);
+                    continue;
+                }
+                state = requireValueState(i, state, true);
+                // We're going to have to quote the output.  Further expand to
+                // include more of an unquoted token in a string.
+                for (; runEnd < n; runEnd += utf8::get_octet_count(_jsonish[runEnd])) {
+                    if (isJsonSpecialChar(runEnd)) {
+                        break;
+                    }
+                }
+                if ((runEnd < n) && (utf8::char_at(_jsonish, runEnd) == "\"")) {
+                    ++runEnd;
+                }
+                // Treat as an unquoted string literal
+                insert(i, '"');
+                sanitizeString(i, runEnd);
+                auto fakeRunEnd = _jsonish.data() + runEnd;
+                i               = runEnd -
+                    utf8::backup_one_character_octect_count(reinterpret_cast<unsigned char const *>(
+                                                                fakeRunEnd),
+                                                            runEnd - i);
             }
             if (abortLoop) {
                 break;
@@ -541,11 +613,21 @@ void JsonSanitizer::sanitizeString(size_t start, size_t end)
                     // HTML parser switch into or out of the "script data double escaped"
                     // state.
                     // Disallow </script, which ends a script block.
-                    if ((i + 3) >= end) {
-                        break;
-                    }
                     {
                         auto const ofst = i + 1;
+                        if (ofst >= end) {
+                            break;
+                        }
+                        auto endrun = ofst + utf8::get_octet_count(_jsonish[ofst]);
+                        if (endrun < end) {
+                            endrun += utf8::get_octet_count(_jsonish[endrun]);
+                        }
+                        if (endrun < end) {
+                            endrun += utf8::get_octet_count(_jsonish[endrun]);
+                        }
+                        if (endrun >= end) {
+                            break;
+                        }
                         auto       c1   = utf8::char_at(_jsonish, ofst);
                         auto       c2   = utf8::char_at(_jsonish, ofst + c1.length());
                         auto       c3   = utf8::char_at(_jsonish, ofst + c1.length() + c2.length());
@@ -564,16 +646,30 @@ void JsonSanitizer::sanitizeString(size_t start, size_t end)
                 case '>':
                     // Disallow -->, which lets the HTML parser switch out of the "script
                     // data escaped" or "script data double escaped" state.
-                    if (((i - 2) >= start) && (utf8::char_at(_jsonish, i - 2) == "-") &&
-                        (utf8::char_at(_jsonish, i - 1) == "-")) {
-                        replace(i, i + 1, "\\u003e");
+                    {
+                        auto startRun = i -
+                            utf8::backup_one_character_octect_count(reinterpret_cast<
+                                                                        unsigned char const *>(
+                                                                        &_jsonish[i]),
+                                                                    i - start);
+                        startRun =
+                            utf8::backup_one_character_octect_count(reinterpret_cast<
+                                                                        unsigned char const *>(
+                                                                        &_jsonish[startRun]),
+                                                                    startRun - start);
+
+                        if ((startRun >= start) && (utf8::char_at(_jsonish, startRun) == "-") &&
+                            (utf8::char_at(_jsonish, startRun + 1) == "-")) {
+                            replace(i, i + 1, "\\u003e");
+                        }
                     }
                     break;
-                case ']':
+                case ']': {
                     if ((i + 2 < end) && (utf8::char_at(_jsonish, i + 1) == "]") &&
                         (utf8::char_at(_jsonish, i + 2) == ">")) {
                         replace(i, i + 1, "\\u005d");
                     }
+                }
                     break;
                 // Normalize escape sequences.
                 case '\\':
@@ -870,10 +966,9 @@ void JsonSanitizer::normalizeNumber(size_t start, size_t end)
 
     // Integer part
     auto intEnd = endOfDigitRun(pos, end);
-    if (auto ch = utf8::char_at(_jsonish, pos);
-        pos == intEnd) { // No empty integer parts allowed in JSON.
+    if (pos == intEnd) { // No empty integer parts allowed in JSON.
         insert(pos, '0');
-    } else if ((ch.length() == 1) && ('0' == ch.front())) {
+    } else if (auto ch = utf8::char_at(_jsonish, pos); (ch.length() == 1) && ('0' == ch.front())) {
         auto    reencoded = false;
         int64_t value     = 0;
         if (((intEnd - pos) == 1) && (intEnd < end)) {
@@ -1278,7 +1373,7 @@ bool JsonSanitizer::isJsonSpecialChar(size_t i) const
 void JsonSanitizer::appendHex(int n, int nDigits)
 {
     for (unsigned int i = 0, x = static_cast<unsigned int>(n);
-         i < static_cast<unsigned int>(nDigits); ++i, x >> 4) {
+         i<static_cast<unsigned int>(nDigits); ++i, x >> 4) {
         auto dig = static_cast<char>(x & 0xf);
         _sanitizedJson.push_back(dig +
                                  (dig < static_cast<char>(10) ? '0' : static_cast<char>('a' - 10)));
