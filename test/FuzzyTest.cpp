@@ -242,10 +242,10 @@ public:
 private:
     std::string makeRandomJson()
     {
-        static std::uniform_int_distribution<unsigned int> d8{0, 7};
-        static std::uniform_int_distribution<unsigned int> d16{0, 15};
+        static std::uniform_int_distribution<unsigned int> d8{1, 8};
+        static std::uniform_int_distribution<unsigned int> d20{4, 19};
         auto                                               maxDepth   = d8(_generator);
-        auto                                               maxBreadth = d16(_generator);
+        auto                                               maxBreadth = d20(_generator);
         std::string                                        output;
 
         appendWhitespace(output);
@@ -305,21 +305,29 @@ private:
                 static std::uniform_int_distribution<unsigned int>
                                              di{0, static_cast<unsigned int>(INT_FORMAT_STRING.size() - 1)};
                 auto const &                 fmt = INT_FORMAT_STRING[di(_generator)];
-                ::boost::multiprecision::cpp_int num{randomDecimalDigits(maxBreadth * 2)};
-                std::ostringstream               oss;
-                switch (fmt) {
-                    case 'x':
-                        oss << std::hex;
-                        break;
-                    case 'X':
-                        oss << std::hex << std::uppercase;
-                        break;
-                    case 'd':
-                    default:
-                        oss << std::dec;
+                auto                   digitString = randomDecimalDigits(maxBreadth * 2);
+                // Trim any leading 0s as boost mulitprecision ints can't deal with them
+                digitString.erase(0, std::min(digitString.find_first_not_of('0'), digitString.size() - 1));
+                try {
+                    ::boost::multiprecision::cpp_int num{digitString};
+                    std::ostringstream               oss;
+                    switch (fmt) {
+                        case 'x':
+                            oss << std::hex;
+                            break;
+                        case 'X':
+                            oss << std::hex << std::uppercase;
+                            break;
+                        case 'd':
+                        default:
+                            oss << std::dec;
+                    }
+                    oss << num;
+                    s.append(oss.str());
+                } catch (std::runtime_error const &) {
+                    std::cerr << digitString << std::endl;
+                    throw;
                 }
-                oss << num;
-                s.append(oss.str());
             } break;
             case 5:
                 appendRandomString(maxBreadth, s);
@@ -364,12 +372,12 @@ private:
 
     std::string randomDecimalDigits(unsigned int maxDigits)
     {
-        std::uniform_int_distribution<unsigned int> d{1, maxDigits};
+        std::uniform_int_distribution<int> d{1, static_cast<int>(maxDigits)};
         auto                                        nDigits = d(_generator);
         std::string                                 output;
         output.reserve(nDigits);
         static std::uniform_int_distribution<unsigned int> d10{0, 9};
-        for (; nDigits != 0; --nDigits) {
+        for (; nDigits >= 0; --nDigits) {
             output.push_back('0' + d10(_generator));
         }
         return output;

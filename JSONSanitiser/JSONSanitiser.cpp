@@ -354,11 +354,10 @@ void JsonSanitizer::sanitize()
                             break;
                         }
 
-                        state          = requireValueState(i, state, true);
-                        auto &chf      = ch.front();
-                        auto  isNumber = (('0' <= chf) && (chf <= '9')) || (chf == '.') ||
-                                        (chf == '+') || (chf == '-');
-                        auto bisKeyword = !isNumber && isKeyword(i, runEnd);
+                        state            = requireValueState(i, state, true);
+                        auto &chf        = ch.front();
+                        auto  isNumber   = isMaybeNumeric(i, runEnd);
+                        auto  bisKeyword = !isNumber && isKeyword(i, runEnd);
 
                         if (!(isNumber || bisKeyword)) {
                             // We're going to have to quote the output.  Further expand to
@@ -435,11 +434,6 @@ void JsonSanitizer::sanitize()
 
                 if (runEnd == i) {
                     elide(i, i + utf8::get_octet_count(_jsonish[i]));
-                    //auto fakeRunEnd = _jsonish.data() + runEnd;
-                    //i = runEnd - utf8::backup_one_character_octect_count(reinterpret_cast<
-                    //                                                            unsigned char const *>(
-                    //                                                            fakeRunEnd),
-                    //                                                        runEnd - i);
                     continue;
                 }
                 state = requireValueState(i, state, true);
@@ -628,9 +622,9 @@ void JsonSanitizer::sanitizeString(size_t start, size_t end)
                         if (endrun >= end) {
                             break;
                         }
-                        auto       c1   = utf8::char_at(_jsonish, ofst);
-                        auto       c2   = utf8::char_at(_jsonish, ofst + c1.length());
-                        auto       c3   = utf8::char_at(_jsonish, ofst + c1.length() + c2.length());
+                        auto c1 = utf8::char_at(_jsonish, ofst);
+                        auto c2 = utf8::char_at(_jsonish, ofst + c1.length());
+                        auto c3 = utf8::char_at(_jsonish, ofst + c1.length() + c2.length());
                         if ((c1.length() == 1) && (c2.length() == 1) && (c3.length() == 1)) {
                             auto lc1 = static_cast<char>(c1.front() | 32);
                             auto lc2 = static_cast<char>(c2.front() | 32);
@@ -647,11 +641,11 @@ void JsonSanitizer::sanitizeString(size_t start, size_t end)
                     // Disallow -->, which lets the HTML parser switch out of the "script
                     // data escaped" or "script data double escaped" state.
                     {
-                        auto startRun = i -
-                            utf8::backup_one_character_octect_count(reinterpret_cast<
-                                                                        unsigned char const *>(
-                                                                        &_jsonish[i]),
-                                                                    i - start);
+                        auto startRun =
+                            i - utf8::backup_one_character_octect_count(reinterpret_cast<
+                                                                            unsigned char const *>(
+                                                                            &_jsonish[i]),
+                                                                        i - start);
                         startRun =
                             utf8::backup_one_character_octect_count(reinterpret_cast<
                                                                         unsigned char const *>(
@@ -669,8 +663,7 @@ void JsonSanitizer::sanitizeString(size_t start, size_t end)
                         (utf8::char_at(_jsonish, i + 2) == ">")) {
                         replace(i, i + 1, "\\u005d");
                     }
-                }
-                    break;
+                } break;
                 // Normalize escape sequences.
                 case '\\':
                     if (i + 1 == end) {
@@ -1312,14 +1305,14 @@ bool JsonSanitizer::isKeyword(size_t start, size_t end) const
     auto n = end - start;
     if (n == 5) {
         auto pos = _jsonish.find("false", start, n);
-        return pos != std::string_view::npos;
+        return (pos != std::string_view::npos) && (pos < end);
     } else if (n == 4) {
         auto pos = _jsonish.find("true", start, n);
-        if (pos != std::string_view::npos) {
+        if ((pos != std::string_view::npos) && (pos < end)) {
             return true;
         }
         pos = _jsonish.find("null", start, n);
-        return pos != std::string_view::npos;
+        return (pos != std::string_view::npos) && (pos < end);
     }
     return false;
 }
@@ -1373,7 +1366,7 @@ bool JsonSanitizer::isJsonSpecialChar(size_t i) const
 void JsonSanitizer::appendHex(int n, int nDigits)
 {
     for (unsigned int i = 0, x = static_cast<unsigned int>(n);
-         i<static_cast<unsigned int>(nDigits); ++i, x >> 4) {
+         i < static_cast<unsigned int>(nDigits); ++i, x >> 4) {
         auto dig = static_cast<char>(x & 0xf);
         _sanitizedJson.push_back(dig +
                                  (dig < static_cast<char>(10) ? '0' : static_cast<char>('a' - 10)));
@@ -1395,5 +1388,27 @@ size_t JsonSanitizer::endOfDigitRun(size_t start, size_t limit) const
     }
     return limit;
 }
+
+bool JsonSanitizer::isMaybeNumeric(size_t start, size_t end) const
+{
+    auto allMaybeNumeric = true;
+    while (start < end) {
+        auto ch = utf8::char_at(_jsonish, start);
+        if (ch.size() == 1) {
+            auto &chf       = ch.front();
+            allMaybeNumeric = allMaybeNumeric && (('0' <= chf) && (chf <= '9')) || (chf == '.') ||
+                              (chf == '+') || (chf == '-') || (chf == 'e') || (chf == 'E');
+            if (!allMaybeNumeric) {
+                break;
+            }
+        } else {
+            allMaybeNumeric = false;
+            break;
+        }
+        start += ch.size();
+    }
+    return allMaybeNumeric;
+}
+
 
 } // namespace com::google::json

@@ -185,5 +185,6 @@ private:
     bool   isJsonSpecialChar(size_t i) const;
     void   appendHex(int n, int nDigits);
     size_t endOfDigitRun(size_t start, size_t limit) const;
+    bool   isMaybeNumeric(size_t start, size_t end) const;
 };
 } // namespace com::google::json
