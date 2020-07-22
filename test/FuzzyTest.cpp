@@ -535,14 +535,18 @@ TEST(TestFuzzer, Fuzz)
     auto const          nIterations = 10000;
     RandomJSONGenerator rjg{nIterations};
     rjg.init();
-
+    auto count = 0;
     for (auto s : rjg) {
         std::string sanitised;
         std::string sanitised1;
         try {
+            if ((count % 100) == 0) {
+                std::cout << "Iteration " << count << "\n";
+            }
             sanitised = asString(JsonSanitizer::sanitize(s));
-            std::cout << s << " ==> " << sanitised << "\n";
+            //std::cout << s << " ==> " << sanitised << "\n";
             ASSERT_NO_THROW(sanitised1 = asString(JsonSanitizer::sanitize(sanitised)));
+            ++count;
         } catch (...) {
         }
         ASSERT_EQ(sanitised, sanitised1) << "Failed on " << asHex(s) << " ==> " << asHex(sanitised);
