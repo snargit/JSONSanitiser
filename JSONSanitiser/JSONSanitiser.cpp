@@ -558,6 +558,10 @@ void JsonSanitizer::sanitizeString(size_t start, size_t end)
                 }
             }
             switch (chf) {
+                // Fix tabs in strings
+                case '\t':
+                    replace(i, i + 1, "\\t");
+                    break;
                 // Fixup newlines.
                 case '\n':
                     replace(i, i + 1, "\\n");
