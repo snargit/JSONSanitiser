@@ -1370,7 +1370,7 @@ bool JsonSanitizer::isJsonSpecialChar(size_t i) const
 void JsonSanitizer::appendHex(int n, int nDigits)
 {
     for (unsigned int i = 0, x = static_cast<unsigned int>(n);
-         i < static_cast<unsigned int>(nDigits); ++i, x >> 4) {
+         i<static_cast<unsigned int>(nDigits); ++i, x >> 4) {
         auto dig = static_cast<char>(x & 0xf);
         _sanitizedJson.push_back(dig +
                                  (dig < static_cast<char>(10) ? '0' : static_cast<char>('a' - 10)));
